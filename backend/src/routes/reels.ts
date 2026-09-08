@@ -62,226 +62,263 @@ router.get('/reels/item/:id', (req, res) => {
   res.status(404).json({ success: false, error: 'Reel not found' });
 });
 
-// Video Streaming Proxy for Google Drive Video Reels with Range Headers & HEAD support
-const handleStreamRequest = async (req: Request, res: Response, isHeadOnly = false) => {
+// Video Streaming Endpoint with JSON-mode, 302 redirects, HEAD support & optional proxy
+const handleStreamRequest = async (req: Request, res: Response) => {
   const fileId = resolveReelFileId(req.params.id);
   if (!fileId || fileId.length < 15) {
-    res.status(400).send('Invalid file id');
+    res.status(400).json({ error: 'Invalid file id' });
     return;
   }
 
-  // 1. Check if video is already buffered in fast RAM cache
-  const cached = reelsBufferCache.get(fileId);
-  if (cached) {
-    cached.lastAccessed = Date.now();
-    const length = cached.length;
-    const contentType = cached.contentType;
-    const range = req.headers.range;
+  const targetUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
 
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition');
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  // Common media headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition,Location');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
 
-    if (isHeadOnly) {
-      res.setHeader('Content-Length', length);
-      res.status(200).end();
-      return;
-    }
+  // Detect JSON-mode
+  const wantsJson =
+    (req.headers.accept || '').includes('application/json') ||
+    (req.headers['x-requested-with'] || '').toString().toLowerCase() === 'xmlhttprequest' ||
+    req.query.json === '1' ||
+    req.query.format === 'json';
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10) || 0;
-      const end = parts[1] ? parseInt(parts[1], 10) : length - 1;
+  // Explicit proxy mode (only if client explicitly requests ?proxy=1)
+  if (req.query.proxy === '1') {
+    const cached = reelsBufferCache.get(fileId);
+    if (cached) {
+      cached.lastAccessed = Date.now();
+      const length = cached.length;
+      const contentType = cached.contentType;
+      const range = req.headers.range;
 
-      if (start >= length || end >= length || start > end) {
-        res.status(416).setHeader('Content-Range', `bytes */${length}`).end();
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', contentType);
+
+      if (req.method === 'HEAD') {
+        res.setHeader('Content-Length', length);
+        res.status(200).end();
         return;
       }
 
-      const chunk = cached.buffer.subarray(start, end + 1);
-      res.status(206);
-      res.setHeader('Content-Range', `bytes ${start}-${end}/${length}`);
-      res.setHeader('Content-Length', chunk.length);
-      res.end(chunk);
-      return;
-    } else {
-      res.status(200);
-      res.setHeader('Content-Length', length);
-      res.end(cached.buffer);
-      return;
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10) || 0;
+        const end = parts[1] ? parseInt(parts[1], 10) : length - 1;
+
+        if (start >= length || end >= length || start > end) {
+          res.status(416).setHeader('Content-Range', `bytes */${length}`).end();
+          return;
+        }
+
+        const chunk = cached.buffer.subarray(start, end + 1);
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${length}`);
+        res.setHeader('Content-Length', chunk.length);
+        res.end(chunk);
+        return;
+      } else {
+        res.status(200);
+        res.setHeader('Content-Length', length);
+        res.end(cached.buffer);
+        return;
+      }
+    }
+
+    // Forward proxy if requested
+    try {
+      const forwardHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Referer': 'https://drive.google.com/',
+      };
+      if (req.headers.range) forwardHeaders['Range'] = req.headers.range as string;
+
+      let remoteRes = await fetch(targetUrl, { headers: forwardHeaders, redirect: 'follow' });
+      if (!remoteRes.ok && remoteRes.status !== 206) {
+        remoteRes = await fetch(`https://drive.google.com/uc?export=download&id=${fileId}`, {
+          headers: forwardHeaders,
+          redirect: 'follow',
+        });
+      }
+
+      if (remoteRes.ok || remoteRes.status === 206) {
+        res.status(remoteRes.status);
+        res.setHeader('Content-Type', remoteRes.headers.get('content-type') || 'video/mp4');
+        res.setHeader('Accept-Ranges', 'bytes');
+        const cr = remoteRes.headers.get('content-range');
+        if (cr) res.setHeader('Content-Range', cr);
+        const cl = remoteRes.headers.get('content-length');
+        if (cl) res.setHeader('Content-Length', cl);
+
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
+
+        if (remoteRes.body) {
+          const stream = await import('stream');
+          const nodeStream = stream.Readable.fromWeb(remoteRes.body as any);
+          nodeStream.pipe(res);
+          return;
+        }
+      }
+    } catch {
+      // Fall through to redirect
     }
   }
 
-  // 2. Trigger asynchronous background caching into RAM for future requests
-  fetchAndCacheReelVideo(fileId).catch(() => {});
-
-  // 3. Fallback: Direct Streaming Proxy from Google Drive with immediate chunk piping
-  const abortController = new AbortController();
-  req.on('close', () => {
-    abortController.abort();
-  });
-
-  try {
-    const targetUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
-    const forwardHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Referer': 'https://drive.google.com/',
-    };
-
-    if (req.headers.range) {
-      forwardHeaders['Range'] = req.headers.range as string;
+  // If JSON-mode requested (mobile APK / fetch client)
+  if (wantsJson) {
+    console.info(`[Media Redirect JSON] stream fileId=${fileId} -> ${targetUrl}`);
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).end();
+      return;
     }
-
-    let remoteRes = await fetch(targetUrl, {
-      headers: forwardHeaders,
-      redirect: 'follow',
-      signal: abortController.signal,
+    res.json({
+      success: true,
+      fileId,
+      streamUrl: targetUrl,
+      supportsRange: true,
     });
-
-    if (!remoteRes.ok && remoteRes.status !== 206) {
-      remoteRes = await fetch(`https://drive.google.com/uc?export=download&id=${fileId}`, {
-        headers: forwardHeaders,
-        redirect: 'follow',
-        signal: abortController.signal,
-      });
-    }
-
-    if (!remoteRes.ok && remoteRes.status !== 206) {
-      res.status(remoteRes.status || 404).send('Failed to stream video');
-      return;
-    }
-
-    res.status(remoteRes.status);
-    res.setHeader('Content-Type', remoteRes.headers.get('content-type') || 'video/mp4');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition');
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-
-    const contentRange = remoteRes.headers.get('content-range');
-    if (contentRange) res.setHeader('Content-Range', contentRange);
-
-    const contentLength = remoteRes.headers.get('content-length');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-
-    if (isHeadOnly) {
-      res.end();
-      return;
-    }
-
-    if (remoteRes.body) {
-      const stream = await import('stream');
-      const nodeStream = stream.Readable.fromWeb(remoteRes.body as any);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (err: any) {
-    if (err.name === 'AbortError' || err.code === 'ECONNRESET' || err.code === 'EPIPE') return;
-    if (!res.headersSent) {
-      res.status(500).send('Stream proxy failure');
-    }
+    return;
   }
+
+  // Standard redirect mode (for browser <video src> elements)
+  console.info(`[Media Redirect 302] stream fileId=${fileId} -> ${targetUrl}`);
+  res.setHeader('Location', targetUrl);
+  if (req.method === 'HEAD') {
+    res.status(302).end();
+    return;
+  }
+  res.redirect(302, targetUrl);
 };
 
-router.get('/reels/stream/:id', (req, res) => handleStreamRequest(req, res, false));
-router.head('/reels/stream/:id', (req, res) => handleStreamRequest(req, res, true));
+router.get('/reels/stream/:id', handleStreamRequest);
+router.head('/reels/stream/:id', handleStreamRequest);
 
-// Download Reel with proper attachment headers
-router.get('/reels/download/:id', async (req, res) => {
+// Download Reel with JSON-mode & 302 redirect
+const handleDownloadRequest = async (req: Request, res: Response) => {
   const fileId = resolveReelFileId(req.params.id);
   if (!fileId || fileId.length < 15) {
-    res.status(400).send('Invalid file id');
+    res.status(400).json({ error: 'Invalid file id' });
     return;
   }
 
   const matched = inMemoryReels.find(r => r.id === fileId);
   const cleanTitle = matched?.cleanTitle || matched?.title || `Anime_Reel_${fileId.slice(0, 6)}`;
   const filename = `${cleanTitle.replace(/[^a-zA-Z0-9_\-]/g, '_')}.mp4`;
+  const targetUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
 
-  try {
-    const targetUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download`;
-    const forwardHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept': '*/*',
-      'Referer': 'https://drive.google.com/',
-    };
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition,Location');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
 
-    let remoteRes = await fetch(targetUrl, { headers: forwardHeaders, redirect: 'follow' });
-    if (!remoteRes.ok) {
-      remoteRes = await fetch(`https://drive.google.com/uc?export=download&id=${fileId}`, {
-        headers: forwardHeaders,
-        redirect: 'follow',
-      });
-    }
+  // Detect JSON-mode
+  const wantsJson =
+    (req.headers.accept || '').includes('application/json') ||
+    (req.headers['x-requested-with'] || '').toString().toLowerCase() === 'xmlhttprequest' ||
+    req.query.json === '1' ||
+    req.query.format === 'json';
 
-    if (!remoteRes.ok) {
-      res.status(remoteRes.status || 404).send('Failed to fetch reel file for download');
+  if (wantsJson) {
+    console.info(`[Media Redirect JSON] download fileId=${fileId} -> ${targetUrl}`);
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).end();
       return;
     }
-
-    res.status(remoteRes.status);
-    res.setHeader('Content-Type', remoteRes.headers.get('content-type') || 'video/mp4');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    const contentLength = remoteRes.headers.get('content-length');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-
-    if (remoteRes.body) {
-      const stream = await import('stream');
-      const nodeStream = stream.Readable.fromWeb(remoteRes.body as any);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
-    }
-  } catch (err: any) {
-    console.warn(`[Reels Download Proxy] Download error for ${fileId}:`, err.message);
-    if (!res.headersSent) {
-      res.status(500).send('Download proxy failure');
-    }
+    res.json({
+      success: true,
+      fileId,
+      filename,
+      downloadUrl: targetUrl,
+      supportsRange: true,
+    });
+    return;
   }
-});
 
-// Secure Thumbnail Proxy with RAM Caching & Google Drive fallback
-router.get('/reels/thumbnail/:id', async (req, res) => {
+  console.info(`[Media Redirect 302] download fileId=${fileId} -> ${targetUrl}`);
+  res.setHeader('Location', targetUrl);
+  if (req.method === 'HEAD') {
+    res.status(302).end();
+    return;
+  }
+  res.redirect(302, targetUrl);
+};
+
+router.get('/reels/download/:id', handleDownloadRequest);
+router.head('/reels/download/:id', handleDownloadRequest);
+
+// Secure Thumbnail with JSON-mode & 302 redirect
+const handleThumbnailRequest = async (req: Request, res: Response) => {
   const rawId = req.params.id;
   const fileId = resolveReelFileId(rawId) || rawId;
 
-  try {
-    if (fileId && fileId.length >= 10) {
+  if (!fileId || fileId.length < 10) {
+    res.status(400).json({ error: 'Invalid file id' });
+    return;
+  }
+
+  const targetUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition,Location');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+
+  // Detect JSON-mode
+  const wantsJson =
+    (req.headers.accept || '').includes('application/json') ||
+    (req.headers['x-requested-with'] || '').toString().toLowerCase() === 'xmlhttprequest' ||
+    req.query.json === '1' ||
+    req.query.format === 'json';
+
+  if (wantsJson) {
+    console.info(`[Media Redirect JSON] thumbnail fileId=${fileId} -> ${targetUrl}`);
+    if (req.method === 'HEAD') {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).end();
+      return;
+    }
+    res.json({
+      success: true,
+      fileId,
+      thumbnailUrl: targetUrl,
+    });
+    return;
+  }
+
+  // If local RAM cached thumbnail is available and proxy is explicitly requested
+  if (req.query.proxy === '1') {
+    try {
       const cached = await fetchAndCacheReelThumbnail(fileId);
       if (cached && cached.buffer) {
         res.setHeader('Content-Type', cached.contentType || 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
         res.setHeader('Content-Length', cached.buffer.length);
+        if (req.method === 'HEAD') {
+          res.end();
+          return;
+        }
         res.end(cached.buffer);
         return;
       }
-    }
-  } catch (err: any) {
-    console.warn(`[Reels Thumbnail] Error fetching ${fileId}:`, err.message);
+    } catch {}
   }
 
-  // Fallback to og-banner if reel thumbnail is unavailable
-  try {
-    const fallbackPath = path.join(process.cwd(), 'public/og-banner.jpg');
-    if (fs.existsSync(fallbackPath)) {
-      const buf = fs.readFileSync(fallbackPath);
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.setHeader('Content-Length', buf.length);
-      res.end(buf);
-      return;
-    }
-  } catch {}
+  console.info(`[Media Redirect 302] thumbnail fileId=${fileId} -> ${targetUrl}`);
+  res.setHeader('Location', targetUrl);
+  if (req.method === 'HEAD') {
+    res.status(302).end();
+    return;
+  }
+  res.redirect(302, targetUrl);
+};
 
-  if (!res.headersSent) res.status(404).send('Thumbnail not found');
-});
+router.get('/reels/thumbnail/:id', handleThumbnailRequest);
+router.head('/reels/thumbnail/:id', handleThumbnailRequest);
 
 // Preload and buffer upcoming reels & thumbnails
 router.post('/reels/preload', (req, res) => {

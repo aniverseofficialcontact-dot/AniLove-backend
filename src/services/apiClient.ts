@@ -43,11 +43,8 @@ export function getApiBaseUrl(): string {
   }
 
   // 3. Environment variables
-  const envUrl =
-    (typeof import.meta !== 'undefined' && import.meta.env && (
-      import.meta.env.VITE_API_BASE_URL ||
-      import.meta.env.VITE_PUBLIC_API_BASE_URL
-    )) || '';
+  const metaEnv = typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined;
+  const envUrl = (metaEnv && (metaEnv.VITE_API_BASE_URL || metaEnv.VITE_PUBLIC_API_BASE_URL)) || '';
 
   if (envUrl && typeof envUrl === 'string') {
     return sanitizeBaseUrl(envUrl);
@@ -111,3 +108,35 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   const targetUrl = apiUrl(input);
   return fetch(targetUrl, init);
 }
+
+/**
+ * Resolves a media endpoint via JSON-mode for mobile APK / WebView clients.
+ * Requests the endpoint with ?json=1 and Accept: application/json.
+ * Returns the resolved streamUrl/mediaUrl/downloadUrl, or falls back to apiUrl(endpoint).
+ */
+export async function resolveMediaUrl(
+  endpoint: string,
+  field: 'streamUrl' | 'downloadUrl' | 'thumbnailUrl' | 'mediaUrl' = 'streamUrl'
+): Promise<string> {
+  const fallback = apiUrl(endpoint);
+  try {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    const jsonUrl = `${endpoint}${separator}json=1`;
+    const res = await apiFetch(jsonUrl, {
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data[field]) {
+        return data[field];
+      }
+    }
+  } catch {
+    // Fallback to direct redirect URL
+  }
+  return fallback;
+}
+

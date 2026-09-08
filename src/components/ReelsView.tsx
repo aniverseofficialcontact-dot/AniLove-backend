@@ -34,6 +34,7 @@ import {
 } from '../services/reelsService';
 import { reelMediaCache } from '../services/reelMediaCache';
 import { reelDeckManager, recordReelAsWatched } from '../services/reelRandomizer';
+import { apiUrl, resolveMediaUrl } from '../services/apiClient';
 
 interface ReelsViewProps {
   onBack?: () => void;
@@ -392,10 +393,26 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
       if (!preloadedThumbnailCache.has(id)) {
         preloadedThumbnailCache.add(id);
         const img = new Image();
-        img.src = `/api/reels/thumbnail/${id}`;
+        img.src = apiUrl(`/api/reels/thumbnail/${id}`);
       }
     }
   }, [historyIndex, currentReel?.id, nextReel1?.id, nextReel2?.id, nextReel3?.id]);
+
+  // Direct CDN stream URL resolved via JSON mode for APK / mobile client compatibility
+  const [resolvedDirectUrl, setResolvedDirectUrl] = useState<string>('');
+
+  useEffect(() => {
+    if (!currentReel?.id) return;
+    let isMounted = true;
+    resolveMediaUrl(`/api/reels/stream/${currentReel.id}`, 'streamUrl').then((url) => {
+      if (isMounted && url) {
+        setResolvedDirectUrl(url);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [currentReel?.id]);
 
   // Reset frame rendered flag on reel change to show poster instantly
   useEffect(() => {
@@ -940,8 +957,10 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const activeVideoUrl = useMemo(() => {
     if (!currentReel?.id) return '';
     const syncUrl = reelMediaCache.getSynchronousObjectUrl(currentReel.id);
-    return syncUrl || `/api/reels/stream/${currentReel.id}`;
-  }, [currentReel?.id]);
+    if (syncUrl) return syncUrl;
+    if (resolvedDirectUrl) return resolvedDirectUrl;
+    return apiUrl(`/api/reels/stream/${currentReel.id}`);
+  }, [currentReel?.id, resolvedDirectUrl]);
 
   // Ultra-fluid Instagram/TikTok vertical swipe variants (GPU compositor-accelerated)
   const slideVariants = {
@@ -1085,7 +1104,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                   <div className="absolute inset-0 bg-slate-950/90" />
                   {/* Crisp Sharp Poster Image */}
                   <img
-                    src={`/api/reels/thumbnail/${currentReel.id}`}
+                    src={apiUrl(`/api/reels/thumbnail/${currentReel.id}`)}
                     onError={(e) => {
                       const target = e.currentTarget as HTMLImageElement;
                       if (!target.src.includes('lh3.googleusercontent.com')) {
@@ -1107,7 +1126,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 {isLandscape && (
                   <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10">
                     <img
-                      src={`/api/reels/thumbnail/${currentReel.id}`}
+                      src={apiUrl(`/api/reels/thumbnail/${currentReel.id}`)}
                       onError={(e) => {
                         const target = e.currentTarget as HTMLImageElement;
                         if (!target.src.includes('lh3.googleusercontent.com')) {
@@ -1133,7 +1152,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                     }
                   }}
                   src={activeVideoUrl}
-                  poster={`/api/reels/thumbnail/${currentReel.id}`}
+                  poster={apiUrl(`/api/reels/thumbnail/${currentReel.id}`)}
                   autoPlay
                   playsInline
                   loop
@@ -1329,7 +1348,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
               {/* Secure Download Proxy Button */}
               <a
                 data-interactive="true"
-                href={`/api/reels/download/${currentReel.id}`}
+                href={apiUrl(`/api/reels/download/${currentReel.id}`)}
                 download={`${currentReel.cleanTitle || 'AnimeReel'}.mp4`}
                 onClick={(e) => {
                   e.stopPropagation();

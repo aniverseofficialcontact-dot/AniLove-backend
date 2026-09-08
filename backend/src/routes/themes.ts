@@ -3,55 +3,112 @@ import { queryAnimeThemesFast } from '../services/themes';
 
 const router = Router();
 
-// Media Proxy for AnimeThemes audio & video streams (range header support)
-router.get('/animethemes-media', async (req, res) => {
+// Media Proxy & Redirect for AnimeThemes audio & video streams (range header & JSON-mode support)
+const handleAnimeThemesMedia = async (req: any, res: any) => {
   try {
     const rawUrl = (req.query.url as string) || '';
-    if (!rawUrl || (!rawUrl.startsWith('https://a.animethemes.moe/') && !rawUrl.startsWith('https://v.animethemes.moe/'))) {
-      res.status(400).send('Invalid or untrusted media url');
+    let isTrustedHost = false;
+    try {
+      const parsed = new URL(rawUrl);
+      isTrustedHost =
+        parsed.protocol === 'https:' &&
+        (parsed.hostname === 'animethemes.moe' || parsed.hostname.endsWith('.animethemes.moe'));
+    } catch {
+      isTrustedHost = false;
+    }
+
+    if (!rawUrl || !isTrustedHost) {
+      res.status(400).json({ error: 'Invalid or untrusted media url' });
       return;
     }
 
-    const headers: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Referer': 'https://animethemes.moe/',
-      'Accept': '*/*',
-    };
-
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range as string;
-    }
-
-    const remoteRes = await fetch(rawUrl, { headers });
-
-    res.status(remoteRes.status);
-
-    const contentType = remoteRes.headers.get('content-type') || (rawUrl.endsWith('.ogg') ? 'audio/ogg' : 'video/webm');
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Accept-Ranges', 'bytes');
+    // Common headers to always set
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Content-Length,Accept-Ranges,Content-Disposition,Location');
     res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
 
-    const contentRange = remoteRes.headers.get('content-range');
-    if (contentRange) res.setHeader('Content-Range', contentRange);
+    // Detect JSON-mode
+    const wantsJson =
+      (req.headers.accept || '').includes('application/json') ||
+      (req.headers['x-requested-with'] || '').toString().toLowerCase() === 'xmlhttprequest' ||
+      req.query.json === '1' ||
+      req.query.format === 'json';
 
-    const contentLength = remoteRes.headers.get('content-length');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-
-    if (remoteRes.body) {
-      const stream = await import('stream');
-      const nodeStream = stream.Readable.fromWeb(remoteRes.body as any);
-      nodeStream.pipe(res);
-    } else {
-      res.end();
+    if (wantsJson) {
+      console.info(`[Media Redirect JSON] animethemes-media -> ${rawUrl}`);
+      if (req.method === 'HEAD') {
+        res.setHeader('Content-Type', 'application/json');
+        res.status(200).end();
+        return;
+      }
+      res.json({
+        success: true,
+        mediaUrl: rawUrl,
+        supportsRange: true,
+      });
+      return;
     }
+
+    // Forward proxy only if explicitly requested with ?proxy=1
+    if (req.query.proxy === '1') {
+      const headers: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://animethemes.moe/',
+        'Accept': '*/*',
+      };
+
+      if (req.headers.range) {
+        headers['Range'] = req.headers.range as string;
+      }
+
+      const remoteRes = await fetch(rawUrl, { headers });
+
+      res.status(remoteRes.status);
+      const contentType =
+        remoteRes.headers.get('content-type') || (rawUrl.endsWith('.ogg') ? 'audio/ogg' : 'video/webm');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      const contentRange = remoteRes.headers.get('content-range');
+      if (contentRange) res.setHeader('Content-Range', contentRange);
+
+      const contentLength = remoteRes.headers.get('content-length');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+
+      if (remoteRes.body) {
+        const stream = await import('stream');
+        const nodeStream = stream.Readable.fromWeb(remoteRes.body as any);
+        nodeStream.pipe(res);
+      } else {
+        res.end();
+      }
+      return;
+    }
+
+    // Default: Fast 302 redirect for direct streaming
+    console.info(`[Media Redirect 302] animethemes-media -> ${rawUrl}`);
+    res.setHeader('Location', rawUrl);
+    if (req.method === 'HEAD') {
+      res.status(302).end();
+      return;
+    }
+    res.redirect(302, rawUrl);
   } catch (err: any) {
-    console.error('AnimeThemes media proxy error:', err);
+    console.error('AnimeThemes media error:', err);
     if (!res.headersSent) {
-      res.status(500).send('Media stream proxy error');
+      res.status(500).json({ error: 'Media stream redirect error', details: err.message });
     }
   }
-});
+};
+
+router.get('/animethemes-media', handleAnimeThemesMedia);
+router.head('/animethemes-media', handleAnimeThemesMedia);
 
 // AnimeThemes query
 router.get('/animethemes-query', async (req, res) => {

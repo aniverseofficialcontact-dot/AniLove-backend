@@ -1,0 +1,233 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-heading: 'Outfit', sans-serif;
+    --font-body: 'Plus Jakarta Sans', sans-serif;
+  }
+  
+  body {
+    background-color: #0b0f19;
+    color: #f1f5f9;
+    font-family: var(--font-body);
+    overflow-x: hidden;
+  }
+
+  /* Theme Configurations */
+  html.theme-midnight body {
+    background-color: #090d16;
+    color: #f1f5f9;
+  }
+
+  html.theme-cyber body {
+    background-color: #0a0518;
+    color: #f8fafc;
+  }
+
+  html.theme-sakura body {
+    background-color: #120914;
+    color: #fdf2f8;
+  }
+
+  html.theme-slate body {
+    background-color: #0f172a;
+    color: #f8fafc;
+  }
+
+  html.theme-ghibli body {
+    background-color: #071510;
+    color: #ecfdf5;
+  }
+
+  html.theme-amoled body {
+    background-color: #000000;
+    color: #ffffff;
+  }
+
+  html.theme-solar body {
+    background-color: #140b07;
+    color: #fffbeb;
+  }
+
+  html.theme-light body {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+/* Touch callout prevention & mobile gesture safety */
+*,
+*::before,
+*::after {
+  -webkit-touch-callout: none;
+}
+
+.no-callout,
+.anime-card,
+.anime-card *,
+.anime-card img,
+.no-touch-callout {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-user-drag: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Prevent image ghost dragging across browsers */
+img {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Glassmorphism custom utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-panel-subtle {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-modal {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(236, 72, 153, 0.6);
+}
+
+/* 3D Card Hover Perspective */
+.card-perspective {
+  perspective: 1000px;
+}
+
+.card-transform {
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.card-transform:hover, .card-transform:focus-within {
+  transform: translateY(-6px) scale(1.02);
+}
+
+/* Shimmer pulse placeholder animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Water / Liquid Flowable Gradient Animations for Watch Buttons */
+@keyframes liquidWaterFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes waterGleam {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  40%, 100% {
+    transform: translateX(250%) skewX(-20deg);
+  }
+}
+
+.flowable-watch-btn {
+  background: linear-gradient(120deg, #0284c7, #06b6d4, #3b82f6, #6366f1, #8b5cf6, #ec4899, #06b6d4, #0284c7);
+  background-size: 350% 350%;
+  animation: liquidWaterFlow 7s ease infinite;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px -2px rgba(6, 182, 212, 0.45), 0 0 14px rgba(99, 102, 241, 0.35);
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.flowable-watch-btn:hover {
+  animation-duration: 3.5s;
+  box-shadow: 0 6px 26px rgba(6, 182, 212, 0.65), 0 0 22px rgba(236, 72, 153, 0.45);
+}
+
+.flowable-watch-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: waterGleam 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+/* Otaku Rarity Glows */
+.glow-ur {
+  box-shadow: 0 0 25px rgba(236, 72, 153, 0.5), 0 0 50px rgba(168, 85, 247, 0.3);
+}
+
+.glow-ssr {
+  box-shadow: 0 0 25px rgba(234, 179, 8, 0.5), 0 0 45px rgba(249, 115, 22, 0.3);
+}
+
+.glow-sr {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.45);
+}
+

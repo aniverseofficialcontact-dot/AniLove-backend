@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="pwaGrad512" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#ff3377" />
+      <stop offset="25%" stop-color="#ff2670" />
+      <stop offset="55%" stop-color="#c52bb5" />
+      <stop offset="85%" stop-color="#8435e3" />
+      <stop offset="100%" stop-color="#6924cf" />
+    </linearGradient>
+  </defs>
+  <!-- Squircle App Icon Background -->
+  <rect width="512" height="512" rx="120" ry="120" fill="url(#pwaGrad512)" />
+  <!-- Center White Heart -->
+  <path d="M 256 182.5 
+           C 256 182.5, 238 150.5, 194 150.5 
+           C 150 150.5, 132 188.8, 132 222.5 
+           C 132 272.5, 184 316.8, 250 358.4 
+           C 253.6 360.8, 258.4 360.8, 262 358.4 
+           C 328 316.8, 380 272.5, 380 222.5 
+           C 380 188.8, 362 150.5, 318 150.5 
+           C 274 150.5, 256 182.5, 256 182.5 Z" 
+        fill="#ffffff" />
+</svg>

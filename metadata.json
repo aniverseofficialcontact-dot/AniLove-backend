@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix Remix AniLove - Anime Tracker \u0026 Discovery",
+  "description": "Premium anime discovery, airing schedule, library tracking, watch progress, and streaming companion powered by AniList and custom player integrations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with viewing preferences, account information, and statistics",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Display name of user" },
+        "email": { "type": "string", "description": "Email address" },
+        "photoURL": { "type": "string", "description": "Avatar URL" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" },
+        "preferences": {
+          "type": "object",
+          "description": "User playback and UI preferences"
+        },
+        "stats": {
+          "type": "object",
+          "description": "Quiz scores and watch stats"
+        }
+      },
+      "required": ["userId", "email"]
+    },
+    "LibraryItem": {
+      "title": "Anime Library Entry",
+      "description": "Saved anime in user library with status, score, and progress",
+      "type": "object",
+      "properties": {
+        "animeId": { "type": "number", "description": "AniList Anime ID" },
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "title": { "type": "string", "description": "Anime Title" },
+        "coverImage": { "type": "string", "description": "Poster URL" },
+        "status": { "type": "string", "description": "Watching/Completed/Plan to Watch/Dropped" },
+        "progress": { "type": "number", "description": "Episodes watched" },
+        "score": { "type": "number", "description": "User rating 1-10" },
+        "updatedAt": { "type": "string", "description": "Timestamp" }
+      },
+      "required": ["animeId", "userId", "status"]
+    },
+    "QuizScore": {
+      "title": "Quiz Score Record",
+      "description": "Record of user quiz attempt and results",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Score record ID" },
+        "userId": { "type": "string", "description": "User ID" },
+        "animeId": { "type": "number", "description": "Anime ID" },
+        "animeTitle": { "type": "string", "description": "Anime Title" },
+        "score": { "type": "number", "description": "Correct answers out of 5" },
+        "total": { "type": "number", "description": "Total questions (5)" },
+        "timestamp": { "type": "string", "description": "When quiz was taken" }
+      },
+      "required": ["userId", "animeId", "score"]
+    },
+    "WatchHistoryItem": {
+      "title": "Watch History Entry",
+      "description": "User cross-device watch progress and episode resume timestamps",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Composite key animeId_episodeNumber" },
+        "userId": { "type": "string", "description": "Owner User ID" },
+        "animeId": { "type": "number", "description": "AniList Anime ID" },
+        "episodeNumber": { "type": "number", "description": "Episode Number" },
+        "episodeTitle": { "type": "string", "description": "Episode Title" },
+        "seasonTitle": { "type": "string", "description": "Season Title" },
+        "currentTime": { "type": "number", "description": "Current playback seconds" },
+        "duration": { "type": "number", "description": "Episode total seconds" },
+        "lastWatchedAt": { "type": "number", "description": "Timestamp ms" },
+        "completed": { "type": "boolean", "description": "Whether episode finished" },
+        "thumbnailStyle": { "type": "string", "description": "Appearance style" }
+      },
+      "required": ["userId", "animeId", "episodeNumber", "currentTime"]
+    },
+    "GameData": {
+      "title": "Arcade & Game State",
+      "description": "User arcade coins balance, collected cards vault, card awakenings, and daily challenges",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner user ID" },
+        "coins": { "type": "number", "description": "Arcade coins" },
+        "characterCards": { "type": "array", "description": "Collected gacha cards" },
+        "cardAwakenings": { "type": "object", "description": "Card awakening levels" },
+        "activeCompanion": { "type": "object", "description": "Selected chibi companion" },
+        "dailyGameRecords": { "type": "object", "description": "Daily game completion tracker" },
+        "updatedAt": { "type": "string", "description": "Last updated" }
+      },
+      "required": ["userId", "coins"]
+    },
+    "UsernameRecord": {
+      "title": "Unique Username Claim",
+      "description": "Unique username claim mapping lowercase handle to user UID",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "description": "Lowercase unique handle" },
+        "uid": { "type": "string", "description": "Owner Firebase UID" },
+        "createdAt": { "type": "number", "description": "Claim timestamp ms" }
+      },
+      "required": ["username", "uid"]
+    },
+    "ChatProfile": {
+      "title": "Public Chat Profile",
+      "description": "Discoverable user profile for DM search, bio, and identity",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase UID" },
+        "username": { "type": "string", "description": "Unique username handle" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "avatar": { "type": "string", "description": "Avatar photo URL" },
+        "bio": { "type": "string", "description": "User bio or quote" },
+        "anilistUsername": { "type": "string", "description": "Linked AniList username" },
+        "createdAt": { "type": "number", "description": "Timestamp ms" },
+        "lastActive": { "type": "number", "description": "Timestamp ms" }
+      },
+      "required": ["userId", "username", "displayName"]
+    },
+    "ChatConversation": {
+      "title": "1-on-1 Direct Message Conversation",
+      "description": "Chat thread between two users with profile metadata and latest message preview",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Composite thread ID" },
+        "participants": { "type": "array", "description": "Array of 2 participant UIDs" },
+        "participantProfiles": { "type": "object", "description": "Map of UID to profile preview" },
+        "lastMessage": { "type": "object", "description": "Preview of latest sent message" },
+        "updatedAt": { "type": "number", "description": "Latest activity timestamp ms" },
+        "unreadCounts": { "type": "object", "description": "Map of UID to unread message count" }
+      },
+      "required": ["participants", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "Direct Message Item",
+      "description": "5-day expiring chat message supporting text, reels, and anime cards",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID" },
+        "chatId": { "type": "string", "description": "Chat thread ID" },
+        "senderId": { "type": "string", "description": "Sender UID" },
+        "receiverId": { "type": "string", "description": "Recipient UID" },
+        "text": { "type": "string", "description": "Message content" },
+        "type": { "type": "string", "description": "Message type (text, reel, anime)" },
+        "reelData": { "type": "object", "description": "Shared reel payload" },
+        "animeData": { "type": "object", "description": "Shared anime payload" },
+        "timestamp": { "type": "number", "description": "Sent timestamp ms" },
+        "expiresAt": { "type": "number", "description": "Timestamp when message expires (5 days)" },
+        "read": { "type": "boolean", "description": "Whether recipient has read" }
+      },
+      "required": ["chatId", "senderId", "receiverId", "type", "timestamp", "expiresAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Private user document storing profile and settings"
+    },
+    "/users/{userId}/library/{animeId}": {
+      "schema": "LibraryItem",
+      "description": "User private anime watchlist and progress"
+    },
+    "/users/{userId}/watchHistory/{historyId}": {
+      "schema": "WatchHistoryItem",
+      "description": "User cross-device watch history and resume timestamps"
+    },
+    "/users/{userId}/quizScores/{scoreId}": {
+      "schema": "QuizScore",
+      "description": "User anime trivia quiz score history"
+    },
+    "/users/{userId}/gameData/{docId}": {
+      "schema": "GameData",
+      "description": "User arcade coins, character gacha cards, and daily mini-game progression"
+    },
+    "/usernames/{username}": {
+      "schema": "UsernameRecord",
+      "description": "Unique username registry mapping lowercase handle to user UID"
+    },
+    "/profiles/{userId}": {
+      "schema": "ChatProfile",
+      "description": "Public searchable user profile with avatar and bio"
+    },
+    "/chats/{chatId}": {
+      "schema": "ChatConversation",
+      "description": "1-on-1 direct message conversation between two users"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "5-day expiring direct message record"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: anilove-backend
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build:backend
+    startCommand: npm run start:backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: GEMINI_API_KEY
+        sync: false

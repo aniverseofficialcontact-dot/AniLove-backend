@@ -1,0 +1,42 @@
+{
+  "name": "AniLove - Anime Tracker & Discovery",
+  "short_name": "AniLove",
+  "description": "Premium anime discovery, airing schedule, library tracking, watch progress, and streaming companion.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#090d16",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["entertainment", "video", "multimedia"],
+  "shortcuts": [
+    {
+      "name": "Schedule",
+      "url": "/?tab=schedule",
+      "description": "View Airing Anime Schedule"
+    },
+    {
+      "name": "My Library",
+      "url": "/?tab=library",
+      "description": "View My Anime Watchlist"
+    },
+    {
+      "name": "Arcade & Cards",
+      "url": "/?tab=arcade",
+      "description": "Play Mini Games & Open Gacha Cards"
+    }
+  ]
+}

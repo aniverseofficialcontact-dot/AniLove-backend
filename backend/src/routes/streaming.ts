@@ -7,6 +7,7 @@ import {
   parseAnikotoServers,
   resolveAnikotoInternal,
 } from '../services/anikotoScraper';
+import { resolveDirectVideoLink } from '../services/directVideoResolver';
 
 const router = Router();
 
@@ -112,9 +113,14 @@ router.get('/anikoto/stream', async (req, res) => {
       return;
     }
 
+    const rawUrl = data.result.url;
+    const directUrl = await resolveDirectVideoLink(rawUrl);
+
     res.json({
       success: true,
-      streamUrl: data.result.url,
+      streamUrl: directUrl,
+      embedUrl: rawUrl,
+      isDirectVideo: directUrl !== rawUrl,
       skipData: data.result.skip_data || { intro: [0, 0], outro: [0, 0] },
     });
   } catch (error: any) {
@@ -131,6 +137,13 @@ router.post('/anikoto/resolve', async (req, res) => {
       res.status(result.status || 404).json(result);
       return;
     }
+
+    if (result.streamUrl) {
+      const directUrl = await resolveDirectVideoLink(result.streamUrl);
+      result.streamUrl = directUrl;
+      result.isDirectVideo = directUrl !== (result.embedUrl || result.streamUrl);
+    }
+
     res.json(result);
   } catch (error: any) {
     console.error('Anikoto resolve error:', error);
@@ -493,8 +506,16 @@ router.post('/stream/resolve', async (req, res) => {
     });
 
     if (resolved.success) {
+      let directUrl = resolved.streamUrl;
+      if (resolved.streamUrl) {
+        directUrl = await resolveDirectVideoLink(resolved.streamUrl);
+      }
+      const isDirect = Boolean(directUrl && /\.(m3u8|mp4)(\?|$)/i.test(directUrl));
       res.json({
         ...resolved,
+        streamUrl: directUrl || resolved.streamUrl,
+        embedUrl: resolved.embedUrl || resolved.streamUrl,
+        isDirectVideo: isDirect,
         requestedLanguage: langUpper,
         availableLanguages: ['SUB', 'DUB'],
         provider: category || 'tatakai',
@@ -514,6 +535,39 @@ router.post('/stream/resolve', async (req, res) => {
     });
   }
 });
+
+// Direct Video Extractor Endpoint (GET & POST) for Android ExoPlayer and Native Players
+const handleDirectStreamResolution = async (req: any, res: any) => {
+  try {
+    const rawUrl = String(req.body?.embedUrl || req.body?.url || req.query.url || req.query.embedUrl || '').trim();
+    if (!rawUrl) {
+      res.status(400).json({ success: false, error: 'url or embedUrl parameter is required' });
+      return;
+    }
+
+    const directUrl = await resolveDirectVideoLink(rawUrl);
+    const isDirect = Boolean(directUrl && /\.(m3u8|mp4)(\?|$)/i.test(directUrl));
+    const mediaType = directUrl.includes('.m3u8') ? 'hls' : directUrl.includes('.mp4') ? 'mp4' : 'embed';
+
+    res.json({
+      success: true,
+      streamUrl: directUrl,
+      directUrl,
+      embedUrl: rawUrl,
+      isDirectVideo: isDirect,
+      mediaType,
+      supportsExoPlayer: isDirect,
+    });
+  } catch (err: any) {
+    console.error('Direct video resolution error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Failed to extract direct video link' });
+  }
+};
+
+router.get('/stream/direct', handleDirectStreamResolution);
+router.post('/stream/direct', handleDirectStreamResolution);
+router.get('/video/direct', handleDirectStreamResolution);
+router.post('/video/direct', handleDirectStreamResolution);
 
 // 6. ANIVEXA API RESOLVER
 router.post('/anivexa/resolve', async (req, res) => {

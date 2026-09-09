@@ -1,5 +1,6 @@
 // Anikoto Scraper & Stream Resolver Engine
 // Preserves all headers, parsing logic, scoring algorithms, and fallback pipelines
+import { resolveDirectVideoLink } from './directVideoResolver';
 
 export const ANIKOTO_BASE = 'https://anikototv.to';
 export const ANIKOTO_HEADERS: Record<string, string> = {
@@ -369,7 +370,7 @@ export function findBestAnimeMatch(
   return best;
 }
 
-export function generateUniversalFallbackStream(input: {
+export async function generateUniversalFallbackStream(input: {
   anilistId?: number | string;
   animeTitle?: string;
   romajiTitle?: string;
@@ -415,9 +416,15 @@ export function generateUniversalFallbackStream(input: {
     if (found) selected = found;
   }
 
+  const rawEmbedUrl = selected.linkId;
+  const directStreamUrl = await resolveDirectVideoLink(rawEmbedUrl);
+  const isDirectVideo = Boolean(directStreamUrl && /\.(m3u8|mp4)(\?|$)/i.test(directStreamUrl));
+
   return {
     success: true,
-    streamUrl: selected.linkId,
+    streamUrl: directStreamUrl,
+    embedUrl: rawEmbedUrl,
+    isDirectVideo,
     skipData: { intro: [0, 0], outro: [0, 0] },
     animeMatch: {
       id: String(anilistId),
@@ -485,7 +492,7 @@ export async function resolveAnikotoInternal(input: {
   const queries = generateSearchQueries(rawTitles);
 
   if (queries.length === 0) {
-    return generateUniversalFallbackStream({
+    return await generateUniversalFallbackStream({
       anilistId,
       animeTitle,
       romajiTitle,
@@ -538,7 +545,7 @@ export async function resolveAnikotoInternal(input: {
     }
 
     console.info(`[Resolver Log] No direct Anikoto match for "${englishTitle || animeTitle}" EP ${epNum}. Falling back to universal multi-source stream.`);
-    return generateUniversalFallbackStream({
+    return await generateUniversalFallbackStream({
       anilistId,
       animeTitle,
       romajiTitle,
@@ -560,7 +567,7 @@ export async function resolveAnikotoInternal(input: {
 
     if (epJson.status !== 200 || !epJson.result) {
       console.warn(`[Resolver Log] Could not retrieve episode list from Anikoto for ${bestItem.id}`);
-      return generateUniversalFallbackStream({
+      return await generateUniversalFallbackStream({
         anilistId,
         animeTitle,
         romajiTitle,
@@ -573,7 +580,7 @@ export async function resolveAnikotoInternal(input: {
 
     const episodes = parseAnikotoEpisodes(epJson.result);
     if (episodes.length === 0) {
-      return generateUniversalFallbackStream({
+      return await generateUniversalFallbackStream({
         anilistId,
         animeTitle,
         romajiTitle,
@@ -595,7 +602,7 @@ export async function resolveAnikotoInternal(input: {
     const sJson = await sRes.json();
 
     if (sJson.status !== 200 || !sJson.result) {
-      return generateUniversalFallbackStream({
+      return await generateUniversalFallbackStream({
         anilistId,
         animeTitle,
         romajiTitle,
@@ -634,7 +641,7 @@ export async function resolveAnikotoInternal(input: {
     const availableInLang = serverGroups[targetGroupKey] || serverGroups['SUB'] || Object.values(serverGroups)[0] || [];
 
     if (availableInLang.length === 0) {
-      return generateUniversalFallbackStream({
+      return await generateUniversalFallbackStream({
         anilistId,
         animeTitle,
         romajiTitle,
@@ -668,7 +675,7 @@ export async function resolveAnikotoInternal(input: {
     const streamJson = await streamRes.json();
 
     if (streamJson.status !== 200 || !streamJson.result?.url) {
-      return generateUniversalFallbackStream({
+      return await generateUniversalFallbackStream({
         anilistId,
         animeTitle,
         romajiTitle,
@@ -690,9 +697,16 @@ export async function resolveAnikotoInternal(input: {
       });
     });
 
+    const rawEmbedUrl = streamJson.result.url;
+    // Resolve direct video link (.m3u8 or .mp4) for Android ExoPlayer / native video playback
+    const directStreamUrl = await resolveDirectVideoLink(rawEmbedUrl);
+    const isDirectVideo = Boolean(directStreamUrl && /\.(m3u8|mp4)(\?|$)/i.test(directStreamUrl));
+
     return {
       success: true,
-      streamUrl: streamJson.result.url,
+      streamUrl: directStreamUrl,
+      embedUrl: rawEmbedUrl,
+      isDirectVideo,
       skipData: streamJson.result.skip_data || { intro: [0, 0], outro: [0, 0] },
       animeMatch: {
         id: bestItem.id,
@@ -722,7 +736,7 @@ export async function resolveAnikotoInternal(input: {
     };
   } catch (err: any) {
     console.warn(`[Resolver Log] Unexpected Anikoto resolution error:`, err?.message || err);
-    return generateUniversalFallbackStream({
+    return await generateUniversalFallbackStream({
       anilistId,
       animeTitle,
       romajiTitle,

@@ -4,6 +4,9 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createBackendApp } from './backend/src/app';
 import { inMemoryReels, resolveReelFileId } from './backend/src/services/driveReels';
+import { resolveDirectVideoLink } from './backend/src/services/directVideoResolver';
+
+export { resolveDirectVideoLink };
 
 const PORT = 3000;
 

@@ -10,6 +10,7 @@ import {
 import { resolveDirectVideoLink, extractDirectStreamFromEmbed } from '../services/directVideoResolver';
 import { resolveIndianStream, searchIndianAnime } from '../services/animeworldIndiaScraper';
 import { resolveTatakaiStream } from '../services/tatakaiScraper';
+import { resolveRenimeStream } from '../services/renimeScraper';
 
 const router = Router();
 
@@ -264,18 +265,18 @@ router.post('/tatakai/resolve', async (req, res) => {
     const epNum = Number(episodeNumber) || 1;
     const langUpper = String(language || 'SUB').toUpperCase();
 
-    // Try Tatakai scraper first
+    // TRUE TATAKAI RESOLUTION: Multi-Audio & Sub/Dub
     const tatakaiRes = await resolveTatakaiStream({
       anilistId,
       animeTitle,
       englishTitle,
       romajiTitle,
       episodeNumber: epNum,
-      language: langUpper,
+      language: langUpper, // Now correctly passes HIN to Tatakai
       serverName,
     });
 
-    if (tatakaiRes.success && tatakaiRes.streamUrl) {
+    if (tatakaiRes.success) {
       res.json(tatakaiRes);
       return;
     }
@@ -375,24 +376,22 @@ router.post('/renime/resolve', async (req, res) => {
     const epNum = Number(episodeNumber) || 1;
     const langUpper = String(language || 'HIN').toUpperCase();
 
-    // If Indian language or Dual Audio requested, try AnimeWorld/AnimeSalt scraper first
-    if (['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'HINDI', 'TAMIL', 'TELUGU'].includes(langUpper)) {
-      const indianRes = await resolveIndianStream({
-        animeTitle,
-        romajiTitle,
-        englishTitle,
-        episodeNumber: epNum,
-        language: langUpper,
-        serverName,
-      });
+    // TRUE RENIME RESOLUTION: Dedicated Hindi/Regional engine
+    const renimeRes = await resolveRenimeStream({
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      episodeNumber: epNum,
+      language: langUpper,
+      serverName,
+    });
 
-      if (indianRes.success && indianRes.streamUrl) {
-        res.json({
-          ...indianRes,
-          provider: 'renime',
-        });
-        return;
-      }
+    if (renimeRes.success) {
+      res.json({
+        ...renimeRes,
+        provider: 'renime',
+      });
+      return;
     }
 
     // Fallback to Anikoto

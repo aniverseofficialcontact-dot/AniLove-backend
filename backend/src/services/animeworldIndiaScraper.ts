@@ -119,24 +119,32 @@ function scoreIndianCandidate(
 
   // 2. Advanced Season matching
   const getSeason = (s: string) => {
-    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i);
+    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i) || s.match(/-s(\d+)/i);
     return m ? parseInt(m[1]) : null;
   };
 
   const targetSeason = getSeason(targetNorm) || 1;
-  const itemSeason = getSeason(itemTitleNorm);
+  const itemSeason = getSeason(itemTitleNorm) || getSeason(item.url || '');
 
   // KILL if seasons explicitly don't match
   if (itemSeason !== null && targetSeason !== itemSeason) {
     return -999;
   }
 
-  // Bonus for explicit "Season 1" match if looking for S1
-  if (targetSeason === 1 && itemSeason === 1) {
-    score += 150;
-  } else if (targetSeason === 1 && itemSeason === null) {
-    // Potential main title (often the latest season), give lower priority
-    score += 30;
+  // LOGIC: If we want Season 1, but the item explicitly says nothing...
+  if (targetSeason === 1) {
+    if (itemSeason === 1) {
+      score += 200;
+    } else if (itemSeason === null) {
+      // Penalty for main title that might be latest season
+      score -= 50;
+    }
+  } else {
+    if (itemSeason === targetSeason) {
+      score += 200;
+    } else {
+      return -999;
+    }
   }
 
   // 3. Token Matching
@@ -190,64 +198,61 @@ export function detectLanguages(text: string): string[] {
 }
 
 /**
- * Searches WatchAnimeWorld / AnimeWorld India for matching anime
+ * Searches all domains for matching anime
  */
 export async function searchIndianAnime(query: string): Promise<IndianAnimeSearchResult[]> {
-  const results: IndianAnimeSearchResult[] = [];
+  const allResults: IndianAnimeSearchResult[] = [];
   const cleanQ = cleanTitle(query);
-  if (!cleanQ) return results;
+  if (!cleanQ) return allResults;
 
-  for (const base of SEARCH_DOMAINS) {
+  // Search ALL domains in parallel for maximum coverage
+  const searchPromises = SEARCH_DOMAINS.map(async (base) => {
     try {
       const searchUrl = `${base}/?s=${encodeURIComponent(cleanQ)}`;
       const res = await fetch(searchUrl, {
         headers: { ...HEADERS, Referer: `${base}/` },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(6000),
       });
 
-      if (!res.ok) continue;
+      if (!res.ok) return [];
       const html = await res.text();
+      const results: IndianAnimeSearchResult[] = [];
 
-      // Matches series or movies links
       const linkRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/movies?\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let match;
       while ((match = linkRegex.exec(html)) !== null) {
         const itemUrl = match[1];
         const innerContent = match[2];
-
-        // Extract title
         const titleMatch =
           innerContent.match(/alt=["']([^"']+)["']/) ||
           innerContent.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i) ||
           innerContent.match(/title=["']([^"']+)["']/) ||
           [null, innerContent.replace(/<[^>]+>/g, '').trim()];
-        const itemTitle = (titleMatch[1] || '').trim() || itemUrl.split('/').filter(Boolean).pop() || 'Anime';
+        const itemTitle = (titleMatch[1] || '').trim();
 
-        // Extract poster
-        const posterMatch = innerContent.match(/(?:src|data-src)=["'](https?:\/\/[^"']+)["']/i);
-        const poster = posterMatch ? posterMatch[1] : undefined;
-
-        if (itemUrl && !results.some(r => r.url === itemUrl)) {
-          const detected = detectLanguages(itemTitle + ' ' + itemUrl + ' Multi Audio Hindi Tamil Telugu');
+        if (itemUrl && itemTitle) {
+          const detected = detectLanguages(itemTitle + ' ' + itemUrl);
           const type = itemUrl.includes('/series/') ? 'series' : itemUrl.includes('/movie') ? 'movie' : 'anime';
           results.push({
             id: itemUrl.split('/').filter(Boolean).pop() || itemUrl,
             title: itemTitle,
-            url: itemUrl.startsWith('http') ? itemUrl : `${base}${itemUrl}`,
-            poster,
+            url: itemUrl,
             languages: detected,
             type,
           });
         }
       }
-
-      if (results.length > 0) break;
+      return results;
     } catch {
-      // Try next domain
+      return [];
     }
-  }
+  });
 
-  return results;
+  const resolvedResults = await Promise.all(searchPromises);
+  resolvedResults.forEach(r => allResults.push(...r));
+
+  // Remove duplicates
+  return allResults.filter((v, i, a) => a.findIndex(t => t.url === v.url) === i);
 }
 
 /**

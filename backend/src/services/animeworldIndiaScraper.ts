@@ -343,7 +343,11 @@ export async function resolveIndianStream(params: {
     params.romajiTitle,
   ].filter(Boolean) as string[];
 
-  const queries = generateSearchQueries(searchTitles);
+  // If Sub/Dub is requested, add it to queries to find the right version
+  const langQuerySuffix = reqLang === 'SUB' ? 'Sub' : reqLang === 'DUB' ? 'English Dub' : '';
+  const searchQueries = searchTitles.map(t => langQuerySuffix ? `${t} ${langQuerySuffix}` : t);
+
+  const queries = generateSearchQueries(searchQueries);
   let allResults: IndianAnimeSearchResult[] = [];
 
   for (const q of queries) {

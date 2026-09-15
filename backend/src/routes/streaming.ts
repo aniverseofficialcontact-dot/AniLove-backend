@@ -263,25 +263,23 @@ router.post('/tatakai/resolve', async (req, res) => {
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
-    const langUpper = String(language || 'SUB').toUpperCase();
-
     // TRUE TATAKAI RESOLUTION: Multi-Audio & Sub/Dub
-    const tatakaiRes = await resolveTatakaiStream({
+    let tatakaiRes = await resolveTatakaiStream({
       anilistId,
       animeTitle,
       englishTitle,
       romajiTitle,
       episodeNumber: epNum,
-      language: langUpper, // Now correctly passes HIN to Tatakai
+      language: langUpper,
       serverName,
     });
 
-    if (tatakaiRes.success) {
+    if (tatakaiRes.success && tatakaiRes.streamUrl) {
       res.json(tatakaiRes);
       return;
     }
 
-    // Fallback to Anikoto
+    // FALLBACK: If Tatakai fails, try Anikoto
     const fallbackRes = await resolveAnikotoInternal({
       anilistId,
       animeTitle,
@@ -380,7 +378,7 @@ router.post('/renime/resolve', async (req, res) => {
     const langUpper = String(language || 'HIN').toUpperCase();
 
     // TRUE RENIME RESOLUTION: Dedicated Hindi/Regional engine
-    const renimeRes = await resolveRenimeStream({
+    let renimeRes = await resolveRenimeStream({
       anilistId,
       animeTitle,
       romajiTitle,
@@ -390,9 +388,28 @@ router.post('/renime/resolve', async (req, res) => {
       serverName,
     });
 
-    if (renimeRes.success) {
+    if (renimeRes.success && renimeRes.streamUrl) {
       res.json({
         ...renimeRes,
+        provider: 'renime',
+      });
+      return;
+    }
+
+    // FALLBACK: If Renime fails, try AnimeWorld
+    const fallbackIndian = await resolveIndianStream({
+      anilistId,
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      episodeNumber: epNum,
+      language: langUpper,
+      serverName,
+    });
+
+    if (fallbackIndian.success) {
+      res.json({
+        ...fallbackIndian,
         provider: 'renime',
       });
       return;

@@ -64,20 +64,49 @@ export async function resolveRenimeStream(params: {
   }
 
   try {
-    const rawUrl = chosenServer.linkId;
-    // Attempt extraction from Renime's secured players
-    const extracted = await extractDirectStreamFromEmbed(rawUrl);
+    // 1. Perform search to find the correct entry first
+    const searchUrl = `https://watchanimeworld.top/?s=${encodeURIComponent(searchTitle)}`;
+    const searchRes = await fetch(searchUrl, {
+      headers: { 'User-Agent': USER_AGENT, Referer: 'https://watchanimeworld.top/' },
+      signal: AbortSignal.timeout(5000),
+    });
+
+    const candidates = [
+       `https://watchanimeworld.top/episode/${slug}-episode-${epNum}`,
+       `https://watchanimeworld.top/episode/${slug}-1x${epNum}`,
+       `https://watchanimeworld.top/episode/${slug}-s${getSeasonNumber(searchTitle)}-e${epNum}`
+    ];
+
+    if (searchRes.ok) {
+       const html = await searchRes.text();
+       const linkMatch = html.match(/<a\s+[^>]*href=["'](https?:\/\/watchanimeworld\.top\/(?:series|anime)\/[^"']*)["']/i);
+       if (linkMatch) {
+         const baseSeriesUrl = linkMatch[1];
+         const seriesSlug = baseSeriesUrl.split('/').filter(Boolean).pop();
+         candidates.unshift(`https://watchanimeworld.top/episode/${seriesSlug}-episode-${epNum}`);
+       }
+    }
+
+    // Try each candidate until one works
+    let extracted = null;
+    for (const url of candidates) {
+       try {
+          extracted = await extractDirectStreamFromEmbed(url);
+          if (extracted?.streamUrl) break;
+       } catch { continue; }
+    }
+
+    if (!extracted?.streamUrl) throw new Error('All Renime URL candidates failed');
 
     return {
       success: true,
-      streamUrl: extracted?.streamUrl || rawUrl,
-      directStreamUrl: extracted?.streamUrl || null,
-      embedUrl: rawUrl,
-      subtitleUrl: null,
-      isDirectVideo: !!extracted?.streamUrl,
-      availableServers,
-      availableLanguages: ['HIN', 'TAM', 'TEL', 'DUB', 'SUB'],
-      selectedServer: chosenServer.name,
+      streamUrl: extracted.streamUrl,
+      directStreamUrl: extracted.streamUrl,
+      embedUrl: candidates[0],
+      isDirectVideo: true,
+      availableServers: [{ name: 'Renime Direct', type: reqLang, linkId: extracted.streamUrl }],
+      availableLanguages: ['HIN', 'DUB', 'SUB'],
+      selectedServer: 'Renime Direct',
       language: reqLang,
       provider: 'renime'
     };
@@ -88,4 +117,10 @@ export async function resolveRenimeStream(params: {
       status: 500
     };
   }
+}
+
+function getSeasonNumber(title: string): number {
+  const t = title.toLowerCase();
+  const m = t.match(/season\s*(\d+)/i) || t.match(/s(\d+)/i);
+  return m ? parseInt(m[1]) : 1;
 }

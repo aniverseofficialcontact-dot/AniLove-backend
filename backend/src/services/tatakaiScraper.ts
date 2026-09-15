@@ -35,11 +35,11 @@ export async function resolveTatakaiStream(params: {
   const lang = String(params.language || 'SUB').toUpperCase();
   const isDub = lang === 'DUB';
   const title = params.englishTitle || params.animeTitle || 'Anime';
+  const anilistId = params.anilistId;
 
-  // Create a clean URL slug (e.g. "demon-slayer-kimetsu-no-yaiba")
-  const cleanTitle = title.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '') // Remove colons and symbols
-    .replace(/\s+/g, '-');       // Replace spaces with dashes
+  // Multi-Slug Strategy: Try several common formats to avoid 404s
+  const cleanTitle = title.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-');
+  const shortTitle = (params.englishTitle || '').toLowerCase().split(':')[0].replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-');
 
   const getSeasonSuffix = () => {
     const m = title.match(/season\s*(\d+)/i) || title.match(/s(\d+)/i);
@@ -47,19 +47,38 @@ export async function resolveTatakaiStream(params: {
   };
   const seasonSuffix = getSeasonSuffix();
 
-  // Tatakai's specialized server list (Using cleaned URLs)
-  const servers = [
-    {
-      name: 'Tatakai Alpha (Ultra HD)',
+  const slugs = [
+    `${cleanTitle}${seasonSuffix}`,
+    `${shortTitle}${seasonSuffix}`,
+    cleanTitle,
+    shortTitle
+  ].filter((s, i, a) => s && a.indexOf(s) === i);
+
+  // We will build a list of all potential server URLs
+  const serverOptions: Array<{ name: string; type: string; linkId: string }> = [];
+
+  // 1. Prioritize Anilist ID URLs (Most reliable)
+  if (anilistId) {
+    serverOptions.push({
+      name: 'Tatakai Alpha (Direct ID)',
       type: isDub ? 'DUB' : 'SUB',
-      linkId: `https://vidlink.pro/tv/${cleanTitle}${seasonSuffix}/${epNum}`
-    },
-    {
-      name: 'Tatakai Beta (Multi-Audio HIN/ENG)',
+      linkId: `https://vidlink.pro/anime/${anilistId}/${epNum}?dub=${isDub}`
+    });
+    serverOptions.push({
+      name: 'Tatakai Beta (Direct ID)',
       type: 'HIN',
-      linkId: `https://autoembed.co/anime/tv/${cleanTitle}${seasonSuffix}/${epNum}`
-    }
-  ];
+      linkId: `https://autoembed.co/anime/anilist/${anilistId}/${epNum}?dub=${lang === 'HIN' ? 1 : 0}`
+    });
+  }
+
+  // 2. Add Slug-based URLs
+  for (const s of slugs) {
+    serverOptions.push({
+      name: `Tatakai Gamma (${s})`,
+      type: isDub ? 'DUB' : 'SUB',
+      linkId: `https://vidlink.pro/tv/${s}/${epNum}`
+    });
+  }
 
   let selected = servers[0];
   if (params.serverName) {

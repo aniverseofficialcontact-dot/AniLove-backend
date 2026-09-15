@@ -114,6 +114,7 @@ function scoreIndianCandidate(
   item: IndianAnimeSearchResult,
   targetTitle: string,
   requestedEp: number,
+  reqLang: string,
   allCandidates: string[]
 ): number {
   const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -152,36 +153,37 @@ function scoreIndianCandidate(
   }
 
   if (targetSeason > 1) {
-    // If we have an arc match or a season number match, we're good
     if (itemSeason === targetSeason || matchesArc) {
       score += 250;
-    } else {
-      return -999; // KILL: Doesn't match requested season or arc
+    } else if (itemSeason !== null) {
+      return -999; // KILL: Explicitly wrong season
     }
   } else {
     // Season 1 Request
     if (itemSeason === 1) {
       score += 200;
     } else if (itemSeason === null && !matchesArc) {
-      // Check if it belongs to ANOTHER arc (2, 3, 4)
-      let matchesOtherArc = false;
-      for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
-        if (targetNorm.includes(animeKey)) {
-          for (const [sNum, keywords] of Object.entries(seasons)) {
-            if (parseInt(sNum) > 1 && keywords.some(k => itemTitleNorm.includes(k))) {
-              matchesOtherArc = true; break;
-            }
-          }
-        }
-      }
-      if (matchesOtherArc) return -999; // KILL: It's an unnumbered Season 2/3/4
       score += 50;
-    } else {
+    } else if (itemSeason !== null) {
       return -999;
     }
   }
 
-  // 3. Token Matching
+  // 3. Language Preference (CRITICAL for AnimeWorldIndia)
+  const langMatch = item.languages.includes(reqLang);
+  if (langMatch) {
+    score += 150;
+  } else if (reqLang === 'HIN' && (itemTitleNorm.includes('hindi') || itemTitleNorm.includes('hin'))) {
+    score += 100;
+  } else if (reqLang === 'SUB' && (itemTitleNorm.includes('sub') || itemTitleNorm.includes('jap'))) {
+    score += 100;
+  } else if (reqLang === 'DUB' && (itemTitleNorm.includes('dub') || itemTitleNorm.includes('eng'))) {
+    score += 100;
+  } else {
+    score -= 50; // Penalty for wrong language
+  }
+
+  // 4. Token Matching
   const targetTokens = targetNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
   const itemTokens = itemTitleNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
 
@@ -195,7 +197,7 @@ function scoreIndianCandidate(
 
   score += matchRatio * 150;
 
-  // 4. Prefer URL patterns
+  // 5. Prefer URL patterns
   if ((item.url || '').includes('/series/')) score += 50;
 
   return score;
@@ -371,7 +373,7 @@ export async function resolveIndianStream(params: {
   let bestScore = -100;
 
   for (const item of allResults) {
-    const score = scoreIndianCandidate(item, primarySearchTitle, epNum, searchTitles);
+    const score = scoreIndianCandidate(item, primarySearchTitle, epNum, reqLang, searchTitles);
     if (score > bestScore) {
       bestScore = score;
       bestItem = item;

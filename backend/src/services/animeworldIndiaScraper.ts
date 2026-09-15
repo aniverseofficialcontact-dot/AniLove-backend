@@ -56,6 +56,14 @@ const SEARCH_DOMAINS = [
 /**
  * Normalizes title string for search comparison
  */
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by',
+  'from', 'no', 'na', 'ni', 'wa', 'ga', 'o', 'wo', 'mo', 'de', 'tv', 'season', 'part', 'cour', 'act'
+]);
+
+/**
+ * Normalizes title string for search comparison
+ */
 function cleanTitle(str: string): string {
   return (str || '')
     .toLowerCase()
@@ -65,53 +73,82 @@ function cleanTitle(str: string): string {
 }
 
 /**
- * Extracts season number from a title string (e.g. "Season 2" -> 2)
+ * Generates search query variations for better matching
  */
-function getSeasonNumber(title: string): number {
-  const t = title.toLowerCase();
-  const match = t.match(/season\s*(\d+)/i) || t.match(/s(\d+)/i) || t.match(/(\d+)(?:st|nd|rd|th)\s*season/i);
-  if (match) return parseInt(match[1]);
-  // If it's a movie or has no season number, we treat it as 1 for base comparison
-  return 1;
+function generateSearchQueries(rawTitles: string[]): string[] {
+  const queries = new Set<string>();
+  for (const raw of rawTitles) {
+    if (!raw) continue;
+    const clean = raw.replace(/\s+/g, ' ').trim();
+    if (clean.length < 2) continue;
+    queries.add(clean);
+
+    // Remove bracketed text
+    const withoutBrackets = clean.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim();
+    if (withoutBrackets.length >= 2) queries.add(withoutBrackets);
+
+    // Main title before colon/dash
+    const mainTitle = clean.split(/[:\-\–\—\;]/)[0].trim();
+    if (mainTitle.length >= 3) queries.add(mainTitle);
+  }
+  return Array.from(queries);
 }
 
 /**
- * Calculates a match score between the requested anime and a search result
+ * Advanced scoring logic adapted from Anikoto
  */
-function calculateMatchScore(result: IndianAnimeSearchResult, targetTitle: string, isEpisodeRequest: boolean): number {
+function scoreIndianCandidate(
+  item: IndianAnimeSearchResult,
+  targetTitle: string,
+  requestedEp: number,
+  allCandidates: string[]
+): number {
+  const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  const targetNorm = norm(targetTitle);
+  const itemTitleNorm = norm(item.title);
+
+  const isMovieRequest = targetNorm.includes('movie') || targetNorm.includes('film');
+  const isItemMovie = itemTitleNorm.includes('movie') || itemTitleNorm.includes('film') || (item.url || '').includes('/movies/');
+
   let score = 0;
-  const resTitle = result.title.toLowerCase();
-  const target = targetTitle.toLowerCase();
 
-  // 1. Season Matching (CRITICAL)
-  const targetSeason = getSeasonNumber(target);
-  const resultSeason = getSeasonNumber(resTitle);
-  if (targetSeason === resultSeason) {
-    score += 100;
-  } else {
-    // Large penalty for wrong season
-    score -= 50;
+  // 1. Strict Movie / Series mismatch penalty
+  if (isItemMovie && !isMovieRequest && requestedEp > 0) {
+    return -999; // KILL: Don't pick a movie for episode requests
+  }
+  if (!isItemMovie && isMovieRequest) {
+    score -= 100;
   }
 
-  // 2. Movie vs Series Logic
-  const isMovieResult = resTitle.includes('movie') || result.url.includes('/movies/') || resTitle.includes('film');
-  if (isEpisodeRequest && isMovieResult) {
-    score -= 150; // Heavy penalty: we want a series, not a movie
+  // 2. Season matching
+  const getSeason = (s: string) => {
+    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i);
+    return m ? parseInt(m[1]) : 1;
+  };
+  const targetSeason = getSeason(targetNorm);
+  const itemSeason = getSeason(itemTitleNorm);
+
+  if (targetSeason !== itemSeason) {
+    return -999; // KILL: Wrong season
   }
-  if (!isEpisodeRequest && isMovieResult) {
-    score += 100; // Bonus: we are looking for a movie and found one
+  score += 100;
+
+  // 3. Token Matching
+  const targetTokens = targetNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
+  const itemTokens = itemTitleNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
+
+  let matches = 0;
+  for (const token of targetTokens) {
+    if (itemTokens.includes(token)) matches++;
   }
 
-  // 3. Word Matching
-  const targetWords = target.replace(/season\s*\d+/gi, '').split(/\s+/).filter(w => w.length > 2);
-  let matchCount = 0;
-  for (const word of targetWords) {
-    if (resTitle.includes(word)) matchCount++;
-  }
-  score += (matchCount / (targetWords.length || 1)) * 50;
+  const matchRatio = matches / (targetTokens.length || 1);
+  if (matchRatio < 0.4) return -999; // KILL: Title is too different
 
-  // 4. Series URL Bonus
-  if (result.url.includes('/series/')) score += 30;
+  score += matchRatio * 150;
+
+  // 4. Prefer URL patterns
+  if ((item.url || '').includes('/series/')) score += 50;
 
   return score;
 }
@@ -257,14 +294,16 @@ export async function resolveIndianStream(params: {
     params.romajiTitle,
   ].filter(Boolean) as string[];
 
-  let searchResults: IndianAnimeSearchResult[] = [];
+  const queries = generateSearchQueries(searchTitles);
+  let allResults: IndianAnimeSearchResult[] = [];
 
-  for (const title of searchTitles) {
-    searchResults = await searchIndianAnime(title);
-    if (searchResults.length > 0) break;
+  for (const q of queries) {
+    const results = await searchIndianAnime(q);
+    allResults = [...allResults, ...results];
+    if (results.length > 2) break;
   }
 
-  if (searchResults.length === 0) {
+  if (allResults.length === 0) {
     return {
       success: false,
       status: 404,
@@ -275,13 +314,26 @@ export async function resolveIndianStream(params: {
   // Smart Selection: Score all results and pick the best one
   const primarySearchTitle = params.englishTitle || params.animeTitle || 'Anime';
 
-  // Sort results by their match score (highest first)
-  const scoredResults = searchResults.map(res => ({
-    result: res,
-    score: calculateMatchScore(res, primarySearchTitle, epNum > 0)
-  })).sort((a, b) => b.score - a.score);
+  let bestItem: IndianAnimeSearchResult | null = null;
+  let bestScore = -100;
 
-  const targetAnime = scoredResults[0].result;
+  for (const item of allResults) {
+    const score = scoreIndianCandidate(item, primarySearchTitle, epNum, searchTitles);
+    if (score > bestScore) {
+      bestScore = score;
+      bestItem = item;
+    }
+  }
+
+  if (!bestItem || bestScore < 0) {
+    return {
+      success: false,
+      status: 404,
+      error: `Could not find a reliable Hindi match for "${primarySearchTitle}".`,
+    };
+  }
+
+  const targetAnime = bestItem;
 
   try {
     const pageRes = await fetch(targetAnime.url, {

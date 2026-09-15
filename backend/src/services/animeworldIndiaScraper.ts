@@ -62,22 +62,6 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Maps common anime titles to their specific season names used on Indian sites
- */
-const SEASON_NAME_MAP: Record<string, Record<number, string[]>> = {
-  'demon slayer': {
-    1: ['kimetsu no yaiba', 'tanjiro kamado', 'season 1'],
-    2: ['mugan train arc', 'entertainment district arc', 'season 2'],
-    3: ['swordsmith village arc', 'season 3'],
-    4: ['hashira training arc', 'season 4']
-  },
-  'jujutsu kaisen': {
-    1: ['season 1'],
-    2: ['season 2', 'hidden inventory', 'shibuya incident']
-  }
-};
-
-/**
  * Normalizes title string for search comparison
  */
 function cleanTitle(str: string): string {
@@ -91,32 +75,18 @@ function cleanTitle(str: string): string {
 /**
  * Generates search query variations for better matching
  */
-function generateSearchQueries(rawTitles: string[], targetSeason: number): string[] {
+function generateSearchQueries(rawTitles: string[]): string[] {
   const queries = new Set<string>();
-  const baseTitles: string[] = [];
-
   for (const raw of rawTitles) {
     if (!raw) continue;
     const clean = raw.toLowerCase().replace(/\s+/g, ' ').trim();
     if (clean.length < 2) continue;
 
+    // Main title before colon/dash
     const mainTitle = clean.split(/[:\-\–\—\;]/)[0].trim().replace(/\s*season\s*\d+/gi, '');
-    if (mainTitle.length >= 3) baseTitles.push(mainTitle);
+    if (mainTitle.length >= 3) queries.add(mainTitle);
     queries.add(clean);
   }
-
-  // Add specific season mappings
-  for (const base of baseTitles) {
-    for (const [key, mapping] of Object.entries(SEASON_NAME_MAP)) {
-      if (base.includes(key) || key.includes(base)) {
-        const variants = mapping[targetSeason];
-        if (variants) {
-          variants.forEach(v => queries.add(`${key} ${v}`));
-        }
-      }
-    }
-  }
-
   return Array.from(queries);
 }
 
@@ -152,16 +122,15 @@ function scoreIndianCandidate(
   const targetSeason = getSeason(targetNorm) || 1;
   const itemSeason = getSeason(itemTitleNorm) || getSeason(item.url || '');
 
-  // KILL if seasons explicitly don't match
-  if (itemSeason !== null && targetSeason !== itemSeason) {
-    return -999;
-  }
-
-  // If looking for Season 1, but item has no season (often latest season)
-  if (targetSeason === 1 && itemSeason === null) {
-    score += 20;
-  } else if (targetSeason === itemSeason) {
-    score += 200; // Exact season match bonus
+  // If looking for a specific season (2, 3, etc.), it MUST match
+  if (targetSeason > 1) {
+    if (itemSeason !== targetSeason) return -999;
+    score += 200;
+  } else {
+    // If looking for Season 1
+    if (itemSeason === 1) score += 200;
+    else if (itemSeason === null) score += 50; // Accept unnumbered as potential S1
+    else return -999; // Explicit S2/S3/S4 is wrong for S1 request
   }
 
   // 3. Token Matching
@@ -325,13 +294,13 @@ export async function resolveIndianStream(params: {
     params.romajiTitle,
   ].filter(Boolean) as string[];
 
-  const queries = generateSearchQueries(searchTitles, 1); // Get S1 queries by default for scoring
+  const queries = generateSearchQueries(searchTitles);
   let allResults: IndianAnimeSearchResult[] = [];
 
   for (const q of queries) {
     const results = await searchIndianAnime(q);
     allResults = [...allResults, ...results];
-    if (results.length > 5) break;
+    if (allResults.length > 5) break;
   }
 
   if (allResults.length === 0) {
@@ -378,10 +347,11 @@ export async function resolveIndianStream(params: {
     let epHtml = html;
 
     // If it's a series, look for the episode link matching epNum
-    if (targetAnime.url.includes('/series/')) {
+    if (targetAnime.url.includes('/series/') || targetAnime.url.includes('/anime/')) {
       const epPatterns = [
         new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*(?:-|x)0*${epNum}\\/?)[ "']`, 'i'),
         new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*ep(?:isode)?[-_]?0*${epNum}\\/?)[ "']`, 'i'),
+        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/(?:episode|watch|v)\\/[^"']*[-_]0*${epNum}\\/?)[ "']`, 'i'),
       ];
 
       let matchedEpUrl: string | null = null;

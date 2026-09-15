@@ -333,6 +333,7 @@ export async function resolveIndianStream(params: {
   episodeNumber?: number;
   language?: string;
   serverName?: string;
+  anilistId?: number | string;
 }): Promise<ResolveIndianStreamResult> {
   const epNum = Number(params.episodeNumber) || 1;
   const reqLang = String(params.language || 'HIN').toUpperCase();
@@ -394,8 +395,35 @@ export async function resolveIndianStream(params: {
     let epPageUrl = targetAnime.url;
     let epHtml = html;
 
-    // If it's a series, look for the episode link matching epNum
-    if (targetAnime.url.includes('/series/') || targetAnime.url.includes('/anime/')) {
+    // STEP 1: Look for "Seasons" or "Related Series" to find the correct season ID
+    // Inspired by AnimeWorld-India-API's seasons.php logic
+    const seasonsRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?Season\s*(\d+)[\s\S]*?)<\/a>/gi;
+    let sMatch;
+    let foundCorrectSeasonUrl: string | null = null;
+
+    // We search for a link that specifically mentions the requested season number
+    const targetSeasonNum = (params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i)) ?
+      parseInt((params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i))![1]) : 1;
+
+    while ((sMatch = seasonsRegex.exec(html)) !== null) {
+      const sUrl = sMatch[1];
+      const sNum = parseInt(sMatch[3]);
+      if (sNum === targetSeasonNum) {
+        foundCorrectSeasonUrl = sUrl;
+        break;
+      }
+    }
+
+    if (foundCorrectSeasonUrl && foundCorrectSeasonUrl !== targetAnime.url) {
+      const sRes = await fetch(foundCorrectSeasonUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+      if (sRes.ok) {
+        epPageUrl = foundCorrectSeasonUrl;
+        epHtml = await sRes.text();
+      }
+    }
+
+    // STEP 2: Find the episode within the resolved season page
+    if (epPageUrl.includes('/series/') || epPageUrl.includes('/anime/')) {
       const epPatterns = [
         new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*(?:-|x)0*${epNum}\\/?)[ "']`, 'i'),
         new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*ep(?:isode)?[-_]?0*${epNum}\\/?)[ "']`, 'i'),

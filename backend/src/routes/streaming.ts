@@ -657,6 +657,49 @@ router.post('/stream/extract-direct', async (req: any, res: any) => {
   }
 });
 
+// HLS Stream & Segment Proxy for Native Players, ExoPlayer & Web Players
+router.get('/stream/hls-proxy', async (req: any, res: any) => {
+  try {
+    const targetUrl = String(req.query.url || '').trim();
+    if (!targetUrl) {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+    const origin = new URL(targetUrl).origin;
+    const fetchRes = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        Referer: `${origin}/`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!fetchRes.ok) {
+      res.status(fetchRes.status).send('Failed to fetch playlist');
+      return;
+    }
+
+    const contentType = fetchRes.headers.get('content-type') || 'application/vnd.apple.mpegurl';
+    const text = await fetchRes.text();
+
+    if (text.includes('#EXTM3U')) {
+      const rewritten = text
+        .replace(/URI="(\/[^"]+)"/g, `URI="${origin}$1"`)
+        .replace(/^(\/[^\r\n]+)/gm, `${origin}$1`);
+
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(rewritten);
+    } else {
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.send(text);
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 6. ANIVEXA API RESOLVER
 router.post('/anivexa/resolve', async (req, res) => {
   try {

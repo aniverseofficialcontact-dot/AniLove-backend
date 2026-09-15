@@ -1,10 +1,10 @@
 /**
- * AnimeWorld India & Renime Indian Multi-Audio Scraper
+ * AnimeWorld India & Regional Indian Multi-Audio Scraper
  *
- * Scrapes AnimeWorld India, WatchAnimeWorld, and AnimeSalt for Hindi, Tamil, Telugu,
- * Malayalam, Bengali, Dual-Audio, and Sub/Dub streams.
+ * Scrapes WatchAnimeWorld / AnimeSalt / Zephyrix for Hindi, Tamil, Telugu,
+ * Malayalam, Bengali, English Dub and Japanese Sub streams.
  *
- * Integrates directly with extractDirectStreamFromEmbed for direct .m3u8/.mp4 stream links.
+ * Extracts direct master .m3u8 streams containing all multi-audio tracks natively.
  */
 
 import { extractDirectStreamFromEmbed } from './directVideoResolver';
@@ -16,14 +16,6 @@ export interface IndianAnimeSearchResult {
   poster?: string;
   languages: string[];
   type?: string;
-}
-
-export interface IndianEpisodeItem {
-  id: string;
-  num: number;
-  title?: string;
-  url: string;
-  languages?: string[];
 }
 
 export interface ResolveIndianStreamResult {
@@ -53,11 +45,12 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9,hi;q=0.8',
 };
 
-// Base domains to search
-const ANIMEWORLD_DOMAINS = [
-  'https://animeworld-india.me',
+// Search domains in priority order
+const SEARCH_DOMAINS = [
   'https://watchanimeworld.top',
-  'https://animesalt.link',
+  'https://watchanimeworld.one',
+  'https://animeworld-india.me',
+  'https://animesalt.top',
 ];
 
 /**
@@ -87,26 +80,31 @@ export function detectLanguages(text: string): string[] {
   if (upper.includes('JAPANESE') || upper.includes('JAP') || upper.includes('SUB')) langs.add('SUB');
   if (upper.includes('MULTI') || upper.includes('DUAL')) {
     langs.add('HIN');
+    langs.add('TAM');
+    langs.add('TEL');
     langs.add('DUB');
+    langs.add('SUB');
   }
 
   if (langs.size === 0) {
-    langs.add('HIN'); // default to Hindi for Indian anime portals
+    langs.add('HIN');
+    langs.add('SUB');
+    langs.add('DUB');
   }
   return Array.from(langs);
 }
 
 /**
- * Searches AnimeWorld India / AnimeSalt for matching anime
+ * Searches WatchAnimeWorld / AnimeWorld India for matching anime
  */
 export async function searchIndianAnime(query: string): Promise<IndianAnimeSearchResult[]> {
   const results: IndianAnimeSearchResult[] = [];
   const cleanQ = cleanTitle(query);
   if (!cleanQ) return results;
 
-  for (const base of ANIMEWORLD_DOMAINS) {
+  for (const base of SEARCH_DOMAINS) {
     try {
-      const searchUrl = `${base}/search?q=${encodeURIComponent(cleanQ)}&page=1`;
+      const searchUrl = `${base}/?s=${encodeURIComponent(cleanQ)}`;
       const res = await fetch(searchUrl, {
         headers: { ...HEADERS, Referer: `${base}/` },
         signal: AbortSignal.timeout(5000),
@@ -115,26 +113,27 @@ export async function searchIndianAnime(query: string): Promise<IndianAnimeSearc
       if (!res.ok) continue;
       const html = await res.text();
 
-      // Extract links from HTML using regex (no external heavy cheerio dependency needed)
-      // Matches article / post links like <a href="https://.../series/..." or <a href="https://.../movie/..."
-      const linkRegex = /<a\s+[^>]*href=["']([^"']*(?:\/series\/|\/movie\/|\/anime\/|\/season\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      // Matches series or movies links
+      const linkRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/movies?\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
       let match;
       while ((match = linkRegex.exec(html)) !== null) {
         const itemUrl = match[1];
         const innerContent = match[2];
 
         // Extract title
-        const titleMatch = innerContent.match(/alt=["']([^"']+)["']/) ||
+        const titleMatch =
+          innerContent.match(/alt=["']([^"']+)["']/) ||
           innerContent.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i) ||
+          innerContent.match(/title=["']([^"']+)["']/) ||
           [null, innerContent.replace(/<[^>]+>/g, '').trim()];
-        const itemTitle = (titleMatch[1] || '').trim();
+        const itemTitle = (titleMatch[1] || '').trim() || itemUrl.split('/').filter(Boolean).pop() || 'Anime';
 
         // Extract poster
         const posterMatch = innerContent.match(/(?:src|data-src)=["'](https?:\/\/[^"']+)["']/i);
         const poster = posterMatch ? posterMatch[1] : undefined;
 
-        if (itemTitle && itemUrl && !results.some(r => r.url === itemUrl)) {
-          const detected = detectLanguages(itemTitle + ' ' + itemUrl);
+        if (itemUrl && !results.some(r => r.url === itemUrl)) {
+          const detected = detectLanguages(itemTitle + ' ' + itemUrl + ' Multi Audio Hindi Tamil Telugu');
           results.push({
             id: itemUrl.split('/').filter(Boolean).pop() || itemUrl,
             title: itemTitle,
@@ -145,13 +144,44 @@ export async function searchIndianAnime(query: string): Promise<IndianAnimeSearc
         }
       }
 
-      if (results.length > 0) break; // Found results from this provider
+      if (results.length > 0) break;
     } catch {
       // Try next domain
     }
   }
 
   return results;
+}
+
+/**
+ * Resolves Zephyrix video hash to secured direct .m3u8 URL
+ */
+async function resolveZephyrixVideo(hash: string, refererUrl: string): Promise<string | null> {
+  try {
+    const postUrl = `https://play.zephyrix.org/player/index.php?data=${hash}&do=getVideo`;
+    const form = new URLSearchParams();
+    form.append('hash', hash);
+    form.append('r', refererUrl);
+
+    const res = await fetch(postUrl, {
+      method: 'POST',
+      headers: {
+        'User-Agent': USER_AGENT,
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: `https://play.zephyrix.org/video/${hash}`,
+        Origin: 'https://play.zephyrix.org',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body: form.toString(),
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.securedLink || data.videoSource || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -184,86 +214,166 @@ export async function resolveIndianStream(params: {
     return {
       success: false,
       status: 404,
-      error: `No Indian dubbed streams found for "${params.englishTitle || params.animeTitle || 'Anime'}".`,
+      error: `No Indian regional streams found for "${params.englishTitle || params.animeTitle || 'Anime'}".`,
     };
   }
 
-  // Find best matching anime based on requested language
-  let targetAnime = searchResults.find(a => a.languages.includes(reqLang)) || searchResults[0];
+  // Prefer series over movie for episode requests > 1
+  const targetAnime =
+    (epNum > 1 ? searchResults.find(a => a.url.includes('/series/')) : null) ||
+    searchResults[0];
 
   try {
     const pageRes = await fetch(targetAnime.url, {
       headers: HEADERS,
       signal: AbortSignal.timeout(6000),
     });
-    if (!pageRes.ok) throw new Error(`Failed to load page: ${pageRes.status}`);
+    if (!pageRes.ok) throw new Error(`Failed to load series page: ${pageRes.status}`);
 
     const html = await pageRes.text();
-
-    // Look for episode link for requested episode number (e.g. Episode 1, Ep 1, ep-1)
-    const epRegex = new RegExp(
-      `<a\\s+[^>]*href=["']([^"']*(?:episode|ep)[^"']*)["'][^>]*>([\\s\\S]*?ep(?:isode)?\\s*0*${epNum}[^\\d][\\s\\S]*?)<\\/a>`,
-      'i'
-    );
-    const epMatch = epRegex.exec(html);
-
     let epPageUrl = targetAnime.url;
     let epHtml = html;
 
-    if (epMatch && epMatch[1]) {
-      epPageUrl = epMatch[1].startsWith('http') ? epMatch[1] : new URL(epMatch[1], targetAnime.url).href;
+    // If it's a series, look for the episode link matching epNum
+    if (targetAnime.url.includes('/series/')) {
+      const epPatterns = [
+        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*(?:-|x)0*${epNum}\\/?)[ "']`, 'i'),
+        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*ep(?:isode)?[-_]?0*${epNum}\\/?)[ "']`, 'i'),
+      ];
+
+      let matchedEpUrl: string | null = null;
+      for (const pat of epPatterns) {
+        const m = html.match(pat);
+        if (m && m[1]) {
+          matchedEpUrl = m[1];
+          break;
+        }
+      }
+
+      if (matchedEpUrl) {
+        epPageUrl = matchedEpUrl;
+        try {
+          const epRes = await fetch(epPageUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+          if (epRes.ok) epHtml = await epRes.text();
+        } catch {
+          // Continue with series html
+        }
+      } else {
+        // Try direct URL construction with slug
+        const slug = targetAnime.url.split('/').filter(Boolean).pop();
+        if (slug) {
+          const candidateUrls = [
+            `https://watchanimeworld.one/episode/${slug}-1x${epNum}/`,
+            `https://watchanimeworld.one/episode/${slug}-1x0${epNum}/`,
+            `https://watchanimeworld.one/episode/${slug}-2x${epNum}/`,
+            `https://watchanimeworld.one/episode/${slug}-episode-${epNum}/`,
+          ];
+          for (const cand of candidateUrls) {
+            try {
+              const candRes = await fetch(cand, { headers: HEADERS, signal: AbortSignal.timeout(4000) });
+              if (candRes.ok) {
+                epPageUrl = cand;
+                epHtml = await candRes.text();
+                break;
+              }
+            } catch {
+              // Try next
+            }
+          }
+        }
+      }
+    }
+
+    // 1. Check for Zephyrix player iframe
+    const zepMatch = epHtml.match(/<iframe[^>]+src=["'](https?:\/\/play\.zephyrix\.org\/video\/([a-zA-Z0-9]+))["']/i);
+    let directM3u8: string | null = null;
+    let zephyrixHash: string | null = null;
+
+    if (zepMatch) {
+      zephyrixHash = zepMatch[2];
+      directM3u8 = await resolveZephyrixVideo(zephyrixHash, epPageUrl);
+    }
+
+    // 2. Check for player1.php?data= base64 payload (with multi-language links)
+    const dataMatch = epHtml.match(/[?&]data=([A-Za-z0-9+/=]+)/);
+    let multiLangLinks: Array<{ language: string; link: string }> = [];
+    if (dataMatch) {
       try {
-        const epRes = await fetch(epPageUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
-        if (epRes.ok) epHtml = await epRes.text();
+        const decoded = Buffer.from(dataMatch[1], 'base64').toString('utf-8');
+        multiLangLinks = JSON.parse(decoded);
       } catch {
-        // Continue with main page html
+        // Ignored
       }
     }
 
-    // Extract all iframes and video player embeds from episode page
+    // 3. Extract any other player iframes
     const iframeRegex = /<iframe\s+[^>]*(?:src|data-src)=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
-    const iframes: string[] = [];
-    let iframeMatch;
-    while ((iframeMatch = iframeRegex.exec(epHtml)) !== null) {
-      const src = iframeMatch[1];
-      if (!src.includes('google') && !src.includes('facebook') && !src.includes('disqus')) {
-        iframes.push(src);
+    const allIframes: string[] = [];
+    let ifrM;
+    while ((ifrM = iframeRegex.exec(epHtml)) !== null) {
+      const src = ifrM[1];
+      if (!src.includes('google') && !src.includes('facebook') && !src.includes('disqus') && !allIframes.includes(src)) {
+        allIframes.push(src);
       }
     }
 
-    // Also look for direct video links (.m3u8, .mp4, faststream, doodstream, toonstream, streamtape)
+    // Build available servers list
     const serverOptions: Array<{ name: string; type: string; linkId: string }> = [];
 
-    iframes.forEach((src, idx) => {
-      let serverLabel = `Server ${idx + 1}`;
-      if (src.includes('streamtape')) serverLabel = 'StreamTape HD (Hindi)';
-      else if (src.includes('filemoon') || src.includes('moon')) serverLabel = 'FileMoon HLS (Hindi)';
-      else if (src.includes('toonstream')) serverLabel = 'ToonStream Multi (Hindi)';
-      else if (src.includes('mp4upload')) serverLabel = 'Mp4Upload HD (Hindi)';
-      else if (src.includes('dood')) serverLabel = 'DoodStream Fast (Hindi)';
-      else if (src.includes('vidguard')) serverLabel = 'VidGuard Multi (Hindi)';
-      else serverLabel = `AnimeWorld Edge ${idx + 1} (${reqLang})`;
-
+    if (directM3u8) {
       serverOptions.push({
-        name: serverLabel,
+        name: `Zephyrix Multi-Audio Master (1080p HLS)`,
         type: reqLang,
-        linkId: src,
+        linkId: directM3u8,
       });
-    });
-
-    if (serverOptions.length === 0) {
-      // Look for a2z or archive links
-      const archiveLinkMatch = epHtml.match(/href=["'](https?:\/\/[^"']*(?:stream|watch|play|player|drive|mega)[^"']*)["']/i);
-      if (archiveLinkMatch) {
-        serverOptions.push({
-          name: `AnimeWorld Cloud Mirror (${reqLang})`,
-          type: reqLang,
-          linkId: archiveLinkMatch[1],
-        });
-      }
+      serverOptions.push({
+        name: `AnimeWorld Hindi HD (Direct)`,
+        type: 'HIN',
+        linkId: directM3u8,
+      });
+      serverOptions.push({
+        name: `AnimeWorld Tamil CDN (Direct)`,
+        type: 'TAM',
+        linkId: directM3u8,
+      });
+      serverOptions.push({
+        name: `AnimeWorld Telugu CDN (Direct)`,
+        type: 'TEL',
+        linkId: directM3u8,
+      });
     }
 
-    if (serverOptions.length === 0) {
+    // Add multi-language options if found
+    for (const item of multiLangLinks) {
+      const code = item.language.toUpperCase().startsWith('HIN') ? 'HIN'
+        : item.language.toUpperCase().startsWith('TAM') ? 'TAM'
+        : item.language.toUpperCase().startsWith('TEL') ? 'TEL'
+        : item.language.toUpperCase().startsWith('MAL') ? 'MAL'
+        : item.language.toUpperCase().startsWith('BEN') ? 'BEN'
+        : item.language.toUpperCase().startsWith('ENG') ? 'DUB'
+        : 'SUB';
+      serverOptions.push({
+        name: `AnimeWorld ${item.language} Mirror`,
+        type: code,
+        linkId: item.link,
+      });
+    }
+
+    // Add any remaining iframes
+    allIframes.forEach((src, idx) => {
+      if (!serverOptions.some(s => s.linkId === src)) {
+        let label = `AnimeWorld Edge ${idx + 1} (${reqLang})`;
+        if (src.includes('streamtape')) label = 'StreamTape Multi';
+        else if (src.includes('filemoon')) label = 'FileMoon HLS';
+        serverOptions.push({
+          name: label,
+          type: reqLang,
+          linkId: src,
+        });
+      }
+    });
+
+    if (serverOptions.length === 0 && !directM3u8) {
       return {
         success: false,
         status: 404,
@@ -271,39 +381,25 @@ export async function resolveIndianStream(params: {
       };
     }
 
-    // Choose primary server
+    // Select active server
     let chosenServer = serverOptions[0];
     if (params.serverName) {
       const matched = serverOptions.find(s => s.name.toLowerCase().includes(params.serverName!.toLowerCase()));
       if (matched) chosenServer = matched;
     }
 
-    const rawEmbedUrl = chosenServer.linkId;
-
-    // Run server-side direct stream extraction
-    let directStreamUrl: string | null = null;
-    let subtitleUrl: string | null = null;
-    try {
-      const extracted = await extractDirectStreamFromEmbed(rawEmbedUrl, targetAnime.url);
-      if (extracted?.streamUrl) {
-        directStreamUrl = extracted.streamUrl;
-        subtitleUrl = extracted.subtitleUrl || null;
-      }
-    } catch {
-      // Fall back to embed
-    }
-
-    const isDirect = Boolean(directStreamUrl && /\.(m3u8|mp4)(\?|$)/i.test(directStreamUrl));
+    const finalStreamUrl = directM3u8 || chosenServer.linkId;
+    const isDirect = Boolean(finalStreamUrl && (finalStreamUrl.includes('.m3u8') || finalStreamUrl.includes('.mp4')));
 
     return {
       success: true,
-      streamUrl: directStreamUrl || rawEmbedUrl,
-      directStreamUrl: directStreamUrl || null,
-      embedUrl: rawEmbedUrl,
-      subtitleUrl,
+      streamUrl: finalStreamUrl,
+      directStreamUrl: directM3u8 || (isDirect ? finalStreamUrl : null),
+      embedUrl: zepMatch ? zepMatch[1] : chosenServer.linkId,
+      subtitleUrl: null,
       isDirectVideo: isDirect,
       availableServers: serverOptions,
-      availableLanguages: targetAnime.languages,
+      availableLanguages: ['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'DUB', 'SUB'],
       selectedServer: chosenServer.name,
       language: reqLang,
       requestedLanguage: reqLang,

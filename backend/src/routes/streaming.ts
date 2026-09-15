@@ -334,7 +334,10 @@ router.post('/animeworld/resolve', async (req, res) => {
       animeTitle,
       romajiTitle,
       englishTitle,
+      synonyms = [],
       episodeNumber = 1,
+      seasonNumber,
+      format = 'TV',
       language = 'HIN',
       serverName,
     } = req.body;
@@ -344,7 +347,10 @@ router.post('/animeworld/resolve', async (req, res) => {
       animeTitle,
       romajiTitle,
       englishTitle,
+      synonyms,
       episodeNumber: Number(episodeNumber) || 1,
+      seasonNumber: seasonNumber ? Number(seasonNumber) : undefined,
+      format,
       language: String(language || 'HIN').toUpperCase(),
       serverName,
     });

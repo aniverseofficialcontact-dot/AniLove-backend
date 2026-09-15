@@ -47,34 +47,58 @@ const HEADERS = {
 
 // Search domains in priority order
 const SEARCH_DOMAINS = [
-  'https://watchanimeworld.top',
   'https://watchanimeworld.one',
+  'https://watchanimeworld.top',
   'https://animeworld-india.me',
   'https://animesalt.top',
 ];
-
-/**
- * Normalizes title string for search comparison
- */
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'and', 'or', 'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by',
-  'from', 'no', 'na', 'ni', 'wa', 'ga', 'o', 'wo', 'mo', 'de', 'tv', 'season', 'part', 'cour', 'act'
-]);
 
 /**
  * Maps anime seasons to specific ARC keywords used on Indian sites
  */
 const ARC_KEYWORDS: Record<string, Record<number, string[]>> = {
   'demon slayer': {
-    2: ['mugen train', 'entertainment district', 'yūkaku'],
+    1: ['tanjiro kamado', 'unwavering resolve'],
+    2: ['mugen train', 'entertainment district', 'yukaku'],
     3: ['swordsmith village', 'katanakaji'],
     4: ['hashira training', 'hashira']
   },
   'jujutsu kaisen': {
-    2: ['hidden inventory', 'shibuya', 'kaikyū']
+    1: ['curse', 'season 1'],
+    2: ['hidden inventory', 'shibuya', 'kaikyu', 'season 2', '2nd season']
   },
-  'mushoku tensei': {
-    2: ['season 2', 'part 2']
+  'attack on titan': {
+    1: ['season 1'],
+    2: ['season 2'],
+    3: ['season 3'],
+    4: ['final season', 'the final season', 'season 4']
+  },
+  'my hero academia': {
+    1: ['season 1'],
+    2: ['season 2'],
+    3: ['season 3'],
+    4: ['season 4'],
+    5: ['season 5'],
+    6: ['season 6'],
+    7: ['season 7']
+  },
+  'dr stone': {
+    1: ['season 1'],
+    2: ['stone wars', 'season 2'],
+    3: ['new world', 'season 3'],
+    4: ['science future', 'season 4']
+  },
+  'bleach': {
+    1: ['bleach'],
+    2: ['thousand year blood war', 'tybw']
+  },
+  'solo leveling': {
+    1: ['season 1', 'solo leveling'],
+    2: ['season 2', 'arise from the shadow']
+  },
+  'spy x family': {
+    1: ['season 1', 'part 1', 'part 2'],
+    2: ['season 2']
   }
 };
 
@@ -90,117 +114,65 @@ function cleanTitle(str: string): string {
 }
 
 /**
- * Generates search query variations for better matching
+ * Detects season number from title or explicit season
  */
-function generateSearchQueries(rawTitles: string[]): string[] {
-  const queries = new Set<string>();
-  for (const raw of rawTitles) {
-    if (!raw) continue;
-    const clean = raw.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (clean.length < 2) continue;
+function detectSeason(title: string, explicitSeason?: number): number {
+  if (explicitSeason && explicitSeason > 0) return explicitSeason;
+  const clean = cleanTitle(title);
 
-    // Main title before colon/dash
-    const mainTitle = clean.split(/[:\-\–\—\;]/)[0].trim().replace(/\s*season\s*\d+/gi, '');
-    if (mainTitle.length >= 3) queries.add(mainTitle);
-    queries.add(clean);
-  }
-  return Array.from(queries);
-}
+  const sm = clean.match(/season\s*(\d+)/i) || 
+             clean.match(/(\d+)(?:st|nd|rd|th)\s*season/i) || 
+             clean.match(/\bs(\d+)\b/i) || 
+             clean.match(/part\s*(\d+)/i);
+  if (sm) return parseInt(sm[1], 10);
 
-/**
- * Advanced scoring logic adapted from Anikoto
- */
-function scoreIndianCandidate(
-  item: IndianAnimeSearchResult,
-  targetTitle: string,
-  requestedEp: number,
-  reqLang: string,
-  allCandidates: string[]
-): number {
-  const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-  const targetNorm = norm(targetTitle);
-  const itemTitleNorm = norm(item.title);
-
-  const isMovieRequest = targetNorm.includes('movie') || targetNorm.includes('film');
-  const isItemMovie = itemTitleNorm.includes('movie') || itemTitleNorm.includes('film') || (item.url || '').includes('/movies/');
-
-  let score = 0;
-
-  // 1. Strict Movie / Series mismatch penalty
-  if (isItemMovie && !isMovieRequest && requestedEp > 0) {
-    return -999; // KILL: Don't pick a movie for episode requests
-  }
-
-  // 2. Advanced Season & Arc matching
-  const getSeason = (s: string) => {
-    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i) || s.match(/-s(\d+)/i);
-    return m ? parseInt(m[1]) : null;
-  };
-
-  const targetSeason = getSeason(targetNorm) || 1;
-  const itemSeason = getSeason(itemTitleNorm) || getSeason(item.url || '');
-
-  // Check for Arc Keywords if no season number is found
-  let matchesArc = false;
   for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
-    if (targetNorm.includes(animeKey) || itemTitleNorm.includes(animeKey)) {
-      const keywords = seasons[targetSeason];
-      if (keywords && keywords.some(k => itemTitleNorm.includes(k) || (item.url || '').toLowerCase().includes(k.replace(/\s+/g, '-')))) {
-        matchesArc = true;
-        break;
+    if (clean.includes(animeKey)) {
+      for (const [sNumStr, keywords] of Object.entries(seasons)) {
+        const sNum = parseInt(sNumStr, 10);
+        if (keywords.some(k => clean.includes(k))) {
+          return sNum;
+        }
       }
     }
   }
 
-  if (targetSeason > 1) {
-    if (itemSeason === targetSeason || matchesArc) {
-      score += 250;
-    } else if (itemSeason !== null) {
-      return -999; // KILL: Explicitly wrong season
+  return 1;
+}
+
+/**
+ * Generates base search query variations from raw titles
+ */
+function getBaseSearchQueries(rawTitles: string[], isMovie: boolean): string[] {
+  const queries = new Set<string>();
+  for (const raw of rawTitles) {
+    if (!raw) continue;
+    // Extract base name BEFORE removing punctuation
+    const rawBase = raw.split(/[:\-\–\—\;]/)[0].trim();
+    const cleanBase = cleanTitle(rawBase)
+      .replace(/\s*season\s*\d+/gi, '')
+      .replace(/\s*\d+(?:st|nd|rd|th)\s*season/gi, '')
+      .replace(/\s*arc\b/gi, '')
+      .replace(/\s*movie\b/gi, '')
+      .trim();
+
+    if (cleanBase.length >= 3) queries.add(cleanBase);
+
+    const fullClean = cleanTitle(raw)
+      .replace(/\s*season\s*\d+/gi, '')
+      .replace(/\s*part\s*\d+/gi, '')
+      .replace(/\s*arc\b/gi, '')
+      .replace(/\s*the movie\b/gi, '')
+      .trim();
+    if (fullClean.length >= 3) queries.add(fullClean);
+
+    if (isMovie && cleanBase.length >= 3) {
+      queries.add(`${cleanBase} movie`);
     }
-  } else {
-    // Season 1 Request
-    if (itemSeason === 1) {
-      score += 200;
-    } else if (itemSeason === null && !matchesArc) {
-      score += 50;
-    } else if (itemSeason !== null) {
-      return -999;
-    }
+
+    queries.add(cleanTitle(raw));
   }
-
-  // 3. Language Preference (CRITICAL for AnimeWorldIndia)
-  const langMatch = item.languages.includes(reqLang);
-  if (langMatch) {
-    score += 150;
-  } else if (reqLang === 'HIN' && (itemTitleNorm.includes('hindi') || itemTitleNorm.includes('hin'))) {
-    score += 100;
-  } else if (reqLang === 'SUB' && (itemTitleNorm.includes('sub') || itemTitleNorm.includes('jap'))) {
-    score += 100;
-  } else if (reqLang === 'DUB' && (itemTitleNorm.includes('dub') || itemTitleNorm.includes('eng'))) {
-    score += 100;
-  } else {
-    score -= 50; // Penalty for wrong language
-  }
-
-  // 4. Token Matching
-  const targetTokens = targetNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
-  const itemTokens = itemTitleNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));
-
-  let matches = 0;
-  for (const token of targetTokens) {
-    if (itemTokens.includes(token)) matches++;
-  }
-
-  const matchRatio = matches / (targetTokens.length || 1);
-  if (matchRatio < 0.4) return -999; // KILL: Title is too different
-
-  score += matchRatio * 150;
-
-  // 5. Prefer URL patterns
-  if ((item.url || '').includes('/series/')) score += 50;
-
-  return score;
+  return Array.from(queries);
 }
 
 /**
@@ -227,8 +199,12 @@ export function detectLanguages(text: string): string[] {
 
   if (langs.size === 0) {
     langs.add('HIN');
-    langs.add('SUB');
+    langs.add('TAM');
+    langs.add('TEL');
+    langs.add('MAL');
+    langs.add('BEN');
     langs.add('DUB');
+    langs.add('SUB');
   }
   return Array.from(langs);
 }
@@ -272,8 +248,8 @@ export async function searchIndianAnime(query: string): Promise<IndianAnimeSearc
         const poster = posterMatch ? posterMatch[1] : undefined;
 
         if (itemUrl && !results.some(r => r.url === itemUrl)) {
-          const detected = detectLanguages(itemTitle + ' ' + itemUrl + ' Multi Audio Hindi Tamil Telugu');
-          const type = itemUrl.includes('/series/') ? 'series' : itemUrl.includes('/movie') ? 'movie' : 'anime';
+          const detected = detectLanguages(itemTitle + ' ' + itemUrl + ' Multi Audio Hindi Tamil Telugu Malayalam Bengali English');
+          const type = itemUrl.includes('/movies/') || itemUrl.includes('/movie/') ? 'movie' : 'series';
           results.push({
             id: itemUrl.split('/').filter(Boolean).pop() || itemUrl,
             title: itemTitle,
@@ -292,6 +268,37 @@ export async function searchIndianAnime(query: string): Promise<IndianAnimeSearc
   }
 
   return results;
+}
+
+/**
+ * Scores a search candidate for best match
+ */
+function scoreCandidate(item: IndianAnimeSearchResult, baseTitle: string, isMovie: boolean): number {
+  const norm = cleanTitle(item.title || item.id);
+  const targetNorm = cleanTitle(baseTitle);
+
+  let score = 0;
+  const isItemMovie = item.type === 'movie' || (item.url || '').includes('/movies/') || (item.url || '').includes('/movie/');
+
+  if (isMovie) {
+    if (isItemMovie) score += 200;
+    else score -= 100;
+  } else {
+    if (isItemMovie) return -999; // Reject movie for TV series episode request
+    score += 100;
+  }
+
+  // Exact match bonus
+  if (norm === targetNorm) score += 150;
+  else if (norm.startsWith(targetNorm)) score += 80;
+  else if (targetNorm.startsWith(norm)) score += 60;
+
+  // Penalize spin-offs when main show is requested
+  if (targetNorm === 'my hero academia' && norm.includes('vigilantes')) score -= 200;
+  if (targetNorm === 'naruto' && norm.includes('shippuden')) score -= 100;
+  if (targetNorm === 'demon slayer' && norm.includes('infinity castle')) score -= 200;
+
+  return score;
 }
 
 /**
@@ -326,175 +333,150 @@ async function resolveZephyrixVideo(hash: string, refererUrl: string): Promise<s
 }
 
 /**
- * Fetches and resolves streaming embed / direct link for an episode
+ * Fetches and resolves streaming embed / direct link for an episode or movie
  */
 export async function resolveIndianStream(params: {
   animeTitle?: string;
   englishTitle?: string;
   romajiTitle?: string;
+  synonyms?: string[];
   episodeNumber?: number;
+  seasonNumber?: number;
+  format?: string;
   language?: string;
   serverName?: string;
   anilistId?: number | string;
 }): Promise<ResolveIndianStreamResult> {
   const epNum = Number(params.episodeNumber) || 1;
   const reqLang = String(params.language || 'HIN').toUpperCase();
+  const titleStr = params.englishTitle || params.animeTitle || params.romajiTitle || 'Anime';
+
+  const isMovie = (params.format || '').toUpperCase() === 'MOVIE' || 
+                  cleanTitle(titleStr).includes('movie') ||
+                  cleanTitle(titleStr).includes('film') ||
+                  cleanTitle(titleStr).includes('infinity castle') ||
+                  cleanTitle(titleStr).includes('mugen train movie');
+
+  const targetSeason = detectSeason(titleStr, params.seasonNumber);
+
   const searchTitles = [
     params.englishTitle,
     params.animeTitle,
     params.romajiTitle,
+    ...(params.synonyms || []),
   ].filter(Boolean) as string[];
 
-  // If Sub/Dub is requested, add it to queries to find the right version
-  const langQuerySuffix = reqLang === 'SUB' ? 'Sub' : reqLang === 'DUB' ? 'English Dub' : '';
-  const searchQueries = searchTitles.map(t => langQuerySuffix ? `${t} ${langQuerySuffix}` : t);
-
-  const queries = generateSearchQueries(searchQueries);
+  const queries = getBaseSearchQueries(searchTitles, isMovie);
   let allResults: IndianAnimeSearchResult[] = [];
 
   for (const q of queries) {
-    const results = await searchIndianAnime(q);
-    allResults = [...allResults, ...results];
-    if (allResults.length > 5) break;
+    const res = await searchIndianAnime(q);
+    for (const r of res) {
+      if (!allResults.some(existing => existing.url === r.url)) {
+        allResults.push(r);
+      }
+    }
+    if (allResults.length >= 3) break;
   }
 
   if (allResults.length === 0) {
     return {
       success: false,
       status: 404,
-      error: `No Indian regional streams found for "${params.englishTitle || params.animeTitle || 'Anime'}".`,
+      error: `No Indian regional streams found for "${titleStr}".`,
     };
   }
 
-  // Smart Selection: Score all results and pick the best one
-  const primarySearchTitle = params.englishTitle || params.animeTitle || 'Anime';
+  // Base title for matching
+  const baseTitle = cleanTitle(
+    titleStr.split(/[:\-\–\—\;]/)[0]
+      .replace(/\s*season\s*\d+/gi, '')
+      .replace(/\s*arc\b/gi, '')
+      .replace(/\s*movie\b/gi, '')
+      .trim()
+  );
 
   let bestItem: IndianAnimeSearchResult | null = null;
-  let bestScore = -100;
+  let bestScore = -999;
 
   for (const item of allResults) {
-    const score = scoreIndianCandidate(item, primarySearchTitle, epNum, reqLang, searchTitles);
-    if (score > bestScore) {
-      bestScore = score;
+    const s = scoreCandidate(item, baseTitle, isMovie);
+    if (s > bestScore) {
+      bestScore = s;
       bestItem = item;
     }
   }
 
   if (!bestItem || bestScore < 0) {
-    return {
-      success: false,
-      status: 404,
-      error: `Could not find a reliable Hindi match for "${primarySearchTitle}".`,
-    };
+    bestItem = isMovie ? (allResults.find(r => r.type === 'movie') || allResults[0])
+                       : (allResults.find(r => r.type === 'series') || allResults[0]);
   }
 
-  const targetAnime = bestItem;
+  const slug = bestItem.url.split('/').filter(Boolean).pop();
+  let epPageUrl = bestItem.url;
+  let epHtml = '';
 
   try {
-    const pageRes = await fetch(targetAnime.url, {
-      headers: HEADERS,
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!pageRes.ok) throw new Error(`Failed to load series page: ${pageRes.status}`);
-
-    const html = await pageRes.text();
-    let epPageUrl = targetAnime.url;
-    let epHtml = html;
-
-    // STEP 1: Advanced Season/Arc Resolver
-    // Looks for related links that match the requested season number OR arc name
-    const relatedLinksRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let linkMatch;
-    let foundCorrectSeasonUrl: string | null = null;
-
-    const targetSeasonNum = (params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i)) ?
-      parseInt((params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i))![1]) : 1;
-
-    const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
-    const targetTitleNorm = norm(params.englishTitle || params.animeTitle || '');
-
-    while ((linkMatch = relatedLinksRegex.exec(html)) !== null) {
-      const linkUrl = linkMatch[1];
-      const linkText = linkMatch[2];
-      const linkTextNorm = norm(linkText);
-
-      // Check 1: Direct Season Number match (e.g. "Season 1")
-      const seasonMatch = linkTextNorm.match(/season\s*(\d+)/i) || linkTextNorm.match(/s(\d+)/i);
-      if (seasonMatch && parseInt(seasonMatch[1]) === targetSeasonNum) {
-        foundCorrectSeasonUrl = linkUrl;
-        break;
+    // 1. IF MOVIE: Fetch the movie page directly
+    if (bestItem.type === 'movie' || isMovie) {
+      const movieRes = await fetch(bestItem.url, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+      if (movieRes.ok) {
+        epHtml = await movieRes.text();
+        epPageUrl = bestItem.url;
       }
-
-      // Check 2: Arc Name match (e.g. "Entertainment District")
-      for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
-        if (targetTitleNorm.includes(animeKey)) {
-          const keywords = seasons[targetSeasonNum];
-          if (keywords && keywords.some(k => linkTextNorm.includes(norm(k)))) {
-            foundCorrectSeasonUrl = linkUrl;
-            break;
-          }
-        }
-      }
-      if (foundCorrectSeasonUrl) break;
-    }
-
-    if (foundCorrectSeasonUrl && foundCorrectSeasonUrl !== targetAnime.url) {
-      const sRes = await fetch(foundCorrectSeasonUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
-      if (sRes.ok) {
-        epPageUrl = foundCorrectSeasonUrl;
-        epHtml = await sRes.text();
-      }
-    }
-
-    // STEP 2: Find the episode within the resolved season page
-    if (epPageUrl.includes('/series/') || epPageUrl.includes('/anime/')) {
-      const epPatterns = [
-        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*(?:-|x)0*${epNum}\\/?)[ "']`, 'i'),
-        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*ep(?:isode)?[-_]?0*${epNum}\\/?)[ "']`, 'i'),
-        new RegExp(`href=["'](https?:\\/\\/[^"']*\\/(?:episode|watch|v)\\/[^"']*[-_]0*${epNum}\\/?)[ "']`, 'i'),
-      ];
-
-      let matchedEpUrl: string | null = null;
-      for (const pat of epPatterns) {
-        const m = html.match(pat);
-        if (m && m[1]) {
-          matchedEpUrl = m[1];
-          break;
+    } else if (slug) {
+      // 2. IF TV SERIES: Build prioritized candidate episode URLs
+      const candidateUrls: string[] = [];
+      for (const base of SEARCH_DOMAINS) {
+        candidateUrls.push(`${base}/episode/${slug}-${targetSeason}x${epNum}/`);
+        candidateUrls.push(`${base}/episode/${slug}-${targetSeason}x0${epNum}/`);
+        candidateUrls.push(`${base}/episode/${slug}-season-${targetSeason}-episode-${epNum}/`);
+        candidateUrls.push(`${base}/episode/${slug}-s${targetSeason}-e${epNum}/`);
+        if (targetSeason === 1) {
+          candidateUrls.push(`${base}/episode/${slug}-episode-${epNum}/`);
+          candidateUrls.push(`${base}/episode/${slug}-${epNum}/`);
+          candidateUrls.push(`${base}/episode/${slug}-1x${epNum}/`);
         }
       }
 
-      if (matchedEpUrl) {
-        epPageUrl = matchedEpUrl;
+      for (const cand of candidateUrls) {
         try {
-          const epRes = await fetch(epPageUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
-          if (epRes.ok) epHtml = await epRes.text();
-        } catch {
-          // Continue with series html
-        }
-      } else {
-        // Try direct URL construction with slug
-        const slug = targetAnime.url.split('/').filter(Boolean).pop();
-        if (slug) {
-          const candidateUrls = [
-            `https://watchanimeworld.one/episode/${slug}-1x${epNum}/`,
-            `https://watchanimeworld.one/episode/${slug}-1x0${epNum}/`,
-            `https://watchanimeworld.one/episode/${slug}-2x${epNum}/`,
-            `https://watchanimeworld.one/episode/${slug}-episode-${epNum}/`,
-          ];
-          for (const cand of candidateUrls) {
-            try {
-              const candRes = await fetch(cand, { headers: HEADERS, signal: AbortSignal.timeout(4000) });
-              if (candRes.ok) {
-                epPageUrl = cand;
-                epHtml = await candRes.text();
-                break;
-              }
-            } catch {
-              // Try next
+          const candRes = await fetch(cand, { headers: HEADERS, signal: AbortSignal.timeout(4000) });
+          if (candRes.ok) {
+            const text = await candRes.text();
+            if (text.includes('zephyrix') || text.includes('player') || text.includes('iframe') || text.includes('video')) {
+              epPageUrl = cand;
+              epHtml = text;
+              break;
             }
           }
+        } catch {
+          // Try next candidate
         }
       }
+
+      // Fallback: If direct candidate URL did not hit, fetch series page and inspect links
+      if (!epHtml) {
+        const seriesRes = await fetch(bestItem.url, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+        if (seriesRes.ok) {
+          const sHtml = await seriesRes.text();
+          const epLinkRegex = new RegExp(`href=["'](https?:\\/\\/[^"']*\\/episode\\/[^"']*(?:${targetSeason}x|episode[-_]|[-_])0*${epNum}\\/?)[ "']`, 'i');
+          const m = sHtml.match(epLinkRegex);
+          if (m && m[1]) {
+            epPageUrl = m[1];
+            const epRes = await fetch(epPageUrl, { headers: HEADERS, signal: AbortSignal.timeout(6000) });
+            if (epRes.ok) epHtml = await epRes.text();
+          }
+        }
+      }
+    }
+
+    if (!epHtml) {
+      return {
+        success: false,
+        status: 404,
+        error: `Could not find Season ${targetSeason} Episode ${epNum} on AnimeWorld India for "${titleStr}".`,
+      };
     }
 
     // 1. Check for Zephyrix player iframe
@@ -585,7 +567,7 @@ export async function resolveIndianStream(params: {
       return {
         success: false,
         status: 404,
-        error: `Found anime listing but could not extract episode ${epNum} stream.`,
+        error: `Found anime listing but could not extract episode stream.`,
       };
     }
 
@@ -596,7 +578,7 @@ export async function resolveIndianStream(params: {
       if (matched) chosenServer = matched;
     }
 
-    // For webview playback, zephyrixEmbedUrl is rock solid with full FirePlayer multi-audio!
+    // For webview playback, zephyrixEmbedUrl has built-in Hindi/Multi-Audio tracks
     const activeStreamUrl = zephyrixEmbedUrl || directM3u8 || chosenServer.linkId;
 
     return {

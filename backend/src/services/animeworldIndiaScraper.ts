@@ -62,6 +62,23 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
+ * Maps anime seasons to specific ARC keywords used on Indian sites
+ */
+const ARC_KEYWORDS: Record<string, Record<number, string[]>> = {
+  'demon slayer': {
+    2: ['mugen train', 'entertainment district', 'yūkaku'],
+    3: ['swordsmith village', 'katanakaji'],
+    4: ['hashira training', 'hashira']
+  },
+  'jujutsu kaisen': {
+    2: ['hidden inventory', 'shibuya', 'kaikyū']
+  },
+  'mushoku tensei': {
+    2: ['season 2', 'part 2']
+  }
+};
+
+/**
  * Normalizes title string for search comparison
  */
 function cleanTitle(str: string): string {
@@ -113,7 +130,7 @@ function scoreIndianCandidate(
     return -999; // KILL: Don't pick a movie for episode requests
   }
 
-  // 2. Advanced Season matching
+  // 2. Advanced Season & Arc matching
   const getSeason = (s: string) => {
     const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i) || s.match(/-s(\d+)/i);
     return m ? parseInt(m[1]) : null;
@@ -122,15 +139,46 @@ function scoreIndianCandidate(
   const targetSeason = getSeason(targetNorm) || 1;
   const itemSeason = getSeason(itemTitleNorm) || getSeason(item.url || '');
 
-  // If looking for a specific season (2, 3, etc.), it MUST match
+  // Check for Arc Keywords if no season number is found
+  let matchesArc = false;
+  for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
+    if (targetNorm.includes(animeKey) || itemTitleNorm.includes(animeKey)) {
+      const keywords = seasons[targetSeason];
+      if (keywords && keywords.some(k => itemTitleNorm.includes(k) || (item.url || '').toLowerCase().includes(k.replace(/\s+/g, '-')))) {
+        matchesArc = true;
+        break;
+      }
+    }
+  }
+
   if (targetSeason > 1) {
-    if (itemSeason !== targetSeason) return -999;
-    score += 200;
+    // If we have an arc match or a season number match, we're good
+    if (itemSeason === targetSeason || matchesArc) {
+      score += 250;
+    } else {
+      return -999; // KILL: Doesn't match requested season or arc
+    }
   } else {
-    // If looking for Season 1
-    if (itemSeason === 1) score += 200;
-    else if (itemSeason === null) score += 50; // Accept unnumbered as potential S1
-    else return -999; // Explicit S2/S3/S4 is wrong for S1 request
+    // Season 1 Request
+    if (itemSeason === 1) {
+      score += 200;
+    } else if (itemSeason === null && !matchesArc) {
+      // Check if it belongs to ANOTHER arc (2, 3, 4)
+      let matchesOtherArc = false;
+      for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
+        if (targetNorm.includes(animeKey)) {
+          for (const [sNum, keywords] of Object.entries(seasons)) {
+            if (parseInt(sNum) > 1 && keywords.some(k => itemTitleNorm.includes(k))) {
+              matchesOtherArc = true; break;
+            }
+          }
+        }
+      }
+      if (matchesOtherArc) return -999; // KILL: It's an unnumbered Season 2/3/4
+      score += 50;
+    } else {
+      return -999;
+    }
   }
 
   // 3. Token Matching

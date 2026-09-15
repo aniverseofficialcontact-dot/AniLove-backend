@@ -395,23 +395,41 @@ export async function resolveIndianStream(params: {
     let epPageUrl = targetAnime.url;
     let epHtml = html;
 
-    // STEP 1: Look for "Seasons" or "Related Series" to find the correct season ID
-    // Inspired by AnimeWorld-India-API's seasons.php logic
-    const seasonsRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?Season\s*(\d+)[\s\S]*?)<\/a>/gi;
-    let sMatch;
+    // STEP 1: Advanced Season/Arc Resolver
+    // Looks for related links that match the requested season number OR arc name
+    const relatedLinksRegex = /<a\s+[^>]*href=["'](https?:\/\/[^"']*(?:\/series\/|\/anime\/)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let linkMatch;
     let foundCorrectSeasonUrl: string | null = null;
 
-    // We search for a link that specifically mentions the requested season number
     const targetSeasonNum = (params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i)) ?
       parseInt((params.englishTitle?.match(/season\s*(\d+)/i) || params.animeTitle?.match(/season\s*(\d+)/i))![1]) : 1;
 
-    while ((sMatch = seasonsRegex.exec(html)) !== null) {
-      const sUrl = sMatch[1];
-      const sNum = parseInt(sMatch[3]);
-      if (sNum === targetSeasonNum) {
-        foundCorrectSeasonUrl = sUrl;
+    const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    const targetTitleNorm = norm(params.englishTitle || params.animeTitle || '');
+
+    while ((linkMatch = relatedLinksRegex.exec(html)) !== null) {
+      const linkUrl = linkMatch[1];
+      const linkText = linkMatch[2];
+      const linkTextNorm = norm(linkText);
+
+      // Check 1: Direct Season Number match (e.g. "Season 1")
+      const seasonMatch = linkTextNorm.match(/season\s*(\d+)/i) || linkTextNorm.match(/s(\d+)/i);
+      if (seasonMatch && parseInt(seasonMatch[1]) === targetSeasonNum) {
+        foundCorrectSeasonUrl = linkUrl;
         break;
       }
+
+      // Check 2: Arc Name match (e.g. "Entertainment District")
+      for (const [animeKey, seasons] of Object.entries(ARC_KEYWORDS)) {
+        if (targetTitleNorm.includes(animeKey)) {
+          const keywords = seasons[targetSeasonNum];
+          if (keywords && keywords.some(k => linkTextNorm.includes(norm(k)))) {
+            foundCorrectSeasonUrl = linkUrl;
+            break;
+          }
+        }
+      }
+      if (foundCorrectSeasonUrl) break;
     }
 
     if (foundCorrectSeasonUrl && foundCorrectSeasonUrl !== targetAnime.url) {

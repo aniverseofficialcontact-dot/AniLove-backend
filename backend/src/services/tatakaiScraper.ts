@@ -34,31 +34,19 @@ export async function resolveTatakaiStream(params: {
   const epNum = Number(params.episodeNumber) || 1;
   const lang = String(params.language || 'SUB').toUpperCase();
   const isDub = lang === 'DUB';
-  const anilistId = params.anilistId || 1;
   const title = params.englishTitle || params.animeTitle || 'Anime';
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  // Tatakai's specialized server list (Independent from Anikoto)
+  // Tatakai's specialized server list (Using search-based resolution where possible)
   const servers = [
     {
       name: 'Tatakai Alpha (Ultra HD)',
       type: isDub ? 'DUB' : 'SUB',
-      linkId: `https://vidlink.pro/anime/${anilistId}/${epNum}?dub=${isDub ? 'true' : 'false'}`
+      linkId: `https://vidlink.pro/tv/${encodeURIComponent(title.toLowerCase().replace(/\s+/g, '-'))}/${epNum}`
     },
     {
       name: 'Tatakai Beta (Multi-Audio HIN/ENG)',
       type: 'HIN',
-      linkId: `https://autoembed.co/anime/anilist/${anilistId}/${epNum}?dub=1`
-    },
-    {
-      name: 'Tatakai Gamma (Fast Load)',
-      type: isDub ? 'DUB' : 'SUB',
-      linkId: `https://vidsrc.cc/v2/embed/anime/${anilistId}/${epNum}?dub=${isDub ? 'true' : 'false'}`
-    },
-    {
-      name: 'Tatakai Delta (Pahe)',
-      type: 'SUB',
-      linkId: `https://player.smashystream.com/anime/${anilistId}/${epNum}`
+      linkId: `https://autoembed.co/anime/tv/${encodeURIComponent(title.toLowerCase().replace(/\s+/g, '-'))}/${epNum}`
     }
   ];
 

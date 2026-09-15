@@ -62,6 +62,22 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
+ * Maps common anime titles to their specific season names used on Indian sites
+ */
+const SEASON_NAME_MAP: Record<string, Record<number, string[]>> = {
+  'demon slayer': {
+    1: ['kimetsu no yaiba', 'tanjiro kamado', 'season 1'],
+    2: ['mugan train arc', 'entertainment district arc', 'season 2'],
+    3: ['swordsmith village arc', 'season 3'],
+    4: ['hashira training arc', 'season 4']
+  },
+  'jujutsu kaisen': {
+    1: ['season 1'],
+    2: ['season 2', 'hidden inventory', 'shibuya incident']
+  }
+};
+
+/**
  * Normalizes title string for search comparison
  */
 function cleanTitle(str: string): string {
@@ -75,22 +91,32 @@ function cleanTitle(str: string): string {
 /**
  * Generates search query variations for better matching
  */
-function generateSearchQueries(rawTitles: string[]): string[] {
+function generateSearchQueries(rawTitles: string[], targetSeason: number): string[] {
   const queries = new Set<string>();
+  const baseTitles: string[] = [];
+
   for (const raw of rawTitles) {
     if (!raw) continue;
-    const clean = raw.replace(/\s+/g, ' ').trim();
+    const clean = raw.toLowerCase().replace(/\s+/g, ' ').trim();
     if (clean.length < 2) continue;
+
+    const mainTitle = clean.split(/[:\-\–\—\;]/)[0].trim().replace(/\s*season\s*\d+/gi, '');
+    if (mainTitle.length >= 3) baseTitles.push(mainTitle);
     queries.add(clean);
-
-    // Remove bracketed text
-    const withoutBrackets = clean.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim();
-    if (withoutBrackets.length >= 2) queries.add(withoutBrackets);
-
-    // Main title before colon/dash
-    const mainTitle = clean.split(/[:\-\–\—\;]/)[0].trim();
-    if (mainTitle.length >= 3) queries.add(mainTitle);
   }
+
+  // Add specific season mappings
+  for (const base of baseTitles) {
+    for (const [key, mapping] of Object.entries(SEASON_NAME_MAP)) {
+      if (base.includes(key) || key.includes(base)) {
+        const variants = mapping[targetSeason];
+        if (variants) {
+          variants.forEach(v => queries.add(`${key} ${v}`));
+        }
+      }
+    }
+  }
+
   return Array.from(queries);
 }
 
@@ -119,24 +145,23 @@ function scoreIndianCandidate(
 
   // 2. Advanced Season matching
   const getSeason = (s: string) => {
-    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i);
+    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i) || s.match(/-s(\d+)/i);
     return m ? parseInt(m[1]) : null;
   };
 
   const targetSeason = getSeason(targetNorm) || 1;
-  const itemSeason = getSeason(itemTitleNorm);
+  const itemSeason = getSeason(itemTitleNorm) || getSeason(item.url || '');
 
   // KILL if seasons explicitly don't match
   if (itemSeason !== null && targetSeason !== itemSeason) {
     return -999;
   }
 
-  // Bonus for explicit "Season 1" match if looking for S1
-  if (targetSeason === 1 && itemSeason === 1) {
-    score += 150;
-  } else if (targetSeason === 1 && itemSeason === null) {
-    // Potential main title (often the latest season), give lower priority
-    score += 30;
+  // If looking for Season 1, but item has no season (often latest season)
+  if (targetSeason === 1 && itemSeason === null) {
+    score += 20;
+  } else if (targetSeason === itemSeason) {
+    score += 200; // Exact season match bonus
   }
 
   // 3. Token Matching
@@ -300,13 +325,13 @@ export async function resolveIndianStream(params: {
     params.romajiTitle,
   ].filter(Boolean) as string[];
 
-  const queries = generateSearchQueries(searchTitles);
+  const queries = generateSearchQueries(searchTitles, 1); // Get S1 queries by default for scoring
   let allResults: IndianAnimeSearchResult[] = [];
 
   for (const q of queries) {
     const results = await searchIndianAnime(q);
     allResults = [...allResults, ...results];
-    if (results.length > 2) break;
+    if (results.length > 5) break;
   }
 
   if (allResults.length === 0) {

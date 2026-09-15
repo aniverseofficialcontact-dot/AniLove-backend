@@ -8,6 +8,8 @@ import {
   resolveAnikotoInternal,
 } from '../services/anikotoScraper';
 import { resolveDirectVideoLink, extractDirectStreamFromEmbed } from '../services/directVideoResolver';
+import { resolveIndianStream, searchIndianAnime } from '../services/animeworldIndiaScraper';
+import { resolveTatakaiStream } from '../services/tatakaiScraper';
 
 const router = Router();
 
@@ -249,60 +251,50 @@ router.post('/anify/resolve', async (req, res) => {
 router.post('/tatakai/resolve', async (req, res) => {
   try {
     const {
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,
-      nativeTitle,
       synonyms = [],
       episodeNumber = 1,
       language = 'SUB',
       serverName,
-      format = 'TV',
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
     const langUpper = String(language || 'SUB').toUpperCase();
-    const displayTitle = englishTitle || animeTitle || romajiTitle || 'Anime';
 
-    const tatakaiServers = [
-      { name: 'Tatakai Alpha HLS (1080p)', type: 'SUB', linkId: 'tatakai-sub-1' },
-      { name: 'Tatakai Multi-Audio Dub', type: 'DUB', linkId: 'tatakai-dub-1' },
-      { name: 'Tatakai Edge CDN (Fast)', type: 'SUB', linkId: 'tatakai-cdn-1' },
-      { name: 'Tatakai Pahe Mirror', type: 'SUB', linkId: 'tatakai-pahe-1' },
-    ];
+    // Try Tatakai scraper first
+    const tatakaiRes = await resolveTatakaiStream({
+      anilistId,
+      animeTitle,
+      englishTitle,
+      romajiTitle,
+      episodeNumber: epNum,
+      language: langUpper,
+      serverName,
+    });
 
-    let resolved = await resolveAnikotoInternal({
+    if (tatakaiRes.success && tatakaiRes.streamUrl) {
+      res.json(tatakaiRes);
+      return;
+    }
+
+    // Fallback to Anikoto
+    const fallbackRes = await resolveAnikotoInternal({
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,
-      nativeTitle,
       synonyms,
       episodeNumber: epNum,
       language: langUpper === 'DUB' ? 'DUB' : 'SUB',
       serverName,
-      format,
     });
 
-    if (!resolved.success) {
-      resolved = await resolveAnikotoInternal({
-        animeTitle,
-        romajiTitle,
-        englishTitle,
-        nativeTitle,
-        synonyms,
-        episodeNumber: epNum,
-        language: 'SUB',
-        serverName,
-        format,
-      });
-    }
-
-    if (resolved.success) {
+    if (fallbackRes.success) {
       res.json({
-        ...resolved,
-        requestedLanguage: langUpper,
-        availableLanguages: ['SUB', 'DUB'],
-        availableServers: [...tatakaiServers, ...(resolved.availableServers || [])],
+        ...fallbackRes,
         provider: 'tatakai',
       });
       return;
@@ -310,7 +302,7 @@ router.post('/tatakai/resolve', async (req, res) => {
 
     res.status(404).json({
       success: false,
-      error: `Tatakai stream not available for "${displayTitle}" Episode ${epNum} in ${langUpper}.`,
+      error: `Could not resolve Tatakai stream for Episode ${epNum}.`,
     });
   } catch (error: any) {
     console.error('Tatakai resolve error:', error);
@@ -321,7 +313,124 @@ router.post('/tatakai/resolve', async (req, res) => {
   }
 });
 
-// 3. MIRURO API RESOLVER
+// 3. ANIMEWORLD INDIA & RENIME (HINDI / TAMIL / TELUGU / MALAYALAM / BENGALI)
+router.get('/animeworld/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || req.query.keyword || '').trim();
+    if (!q) {
+      res.status(400).json({ success: false, error: 'Query parameter q is required' });
+      return;
+    }
+    const results = await searchIndianAnime(q);
+    res.json({ success: true, count: results.length, results });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/animeworld/resolve', async (req, res) => {
+  try {
+    const {
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      episodeNumber = 1,
+      language = 'HIN',
+      serverName,
+    } = req.body;
+
+    const result = await resolveIndianStream({
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      episodeNumber: Number(episodeNumber) || 1,
+      language: String(language || 'HIN').toUpperCase(),
+      serverName,
+    });
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(result.status || 404).json(result);
+    }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. RENIME API RESOLVER (Multi-Audio: Hindi, Tamil, Telugu, English, Japanese)
+router.post('/renime/resolve', async (req, res) => {
+  try {
+    const {
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      synonyms = [],
+      episodeNumber = 1,
+      language = 'HIN',
+      serverName,
+      format = 'TV',
+    } = req.body;
+
+    const epNum = Number(episodeNumber) || 1;
+    const langUpper = String(language || 'HIN').toUpperCase();
+
+    // If Indian language or Dual Audio requested, try AnimeWorld/AnimeSalt scraper first
+    if (['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'HINDI', 'TAMIL', 'TELUGU'].includes(langUpper)) {
+      const indianRes = await resolveIndianStream({
+        animeTitle,
+        romajiTitle,
+        englishTitle,
+        episodeNumber: epNum,
+        language: langUpper,
+        serverName,
+      });
+
+      if (indianRes.success && indianRes.streamUrl) {
+        res.json({
+          ...indianRes,
+          provider: 'renime',
+        });
+        return;
+      }
+    }
+
+    // Fallback to Anikoto
+    const resolved = await resolveAnikotoInternal({
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      synonyms,
+      episodeNumber: epNum,
+      language: langUpper === 'DUB' ? 'DUB' : 'SUB',
+      serverName,
+      format,
+    });
+
+    if (resolved.success) {
+      res.json({
+        ...resolved,
+        requestedLanguage: langUpper,
+        availableLanguages: ['HIN', 'TAM', 'TEL', 'SUB', 'DUB'],
+        provider: 'renime',
+      });
+      return;
+    }
+
+    res.status(404).json({
+      success: false,
+      error: `Renime stream not available for "${englishTitle || animeTitle}" Episode ${epNum} in ${langUpper}.`,
+    });
+  } catch (error: any) {
+    console.error('Renime resolve error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to resolve Renime stream',
+    });
+  }
+});
+
+// 5. MIRURO API RESOLVER
 router.post('/miruro/resolve', async (req, res) => {
   try {
     const {
@@ -340,13 +449,6 @@ router.post('/miruro/resolve', async (req, res) => {
     const langUpper = String(language || 'SUB').toUpperCase();
     const displayTitle = englishTitle || animeTitle || romajiTitle || 'Anime';
 
-    const miruroServers = [
-      { name: 'Miruro Primary Decrypted HLS', type: 'SUB', linkId: 'miruro-hls-1' },
-      { name: 'Miruro English Dub Master', type: 'DUB', linkId: 'miruro-dub-1' },
-      { name: 'Miruro Fast CDN (1080p)', type: 'SUB', linkId: 'miruro-cdn-1' },
-      { name: 'Miruro Pahe Mirror', type: 'SUB', linkId: 'miruro-pahe-1' },
-    ];
-
     let resolved = await resolveAnikotoInternal({
       animeTitle,
       romajiTitle,
@@ -359,26 +461,11 @@ router.post('/miruro/resolve', async (req, res) => {
       format,
     });
 
-    if (!resolved.success) {
-      resolved = await resolveAnikotoInternal({
-        animeTitle,
-        romajiTitle,
-        englishTitle,
-        nativeTitle,
-        synonyms,
-        episodeNumber: epNum,
-        language: 'SUB',
-        serverName,
-        format,
-      });
-    }
-
     if (resolved.success) {
       res.json({
         ...resolved,
         requestedLanguage: langUpper,
         availableLanguages: ['SUB', 'DUB'],
-        availableServers: [...miruroServers, ...(resolved.availableServers || [])],
         provider: 'miruro',
       });
       return;
@@ -397,86 +484,12 @@ router.post('/miruro/resolve', async (req, res) => {
   }
 });
 
-// 4. RENIME API RESOLVER
-router.post('/renime/resolve', async (req, res) => {
-  try {
-    const {
-      animeTitle,
-      romajiTitle,
-      englishTitle,
-      nativeTitle,
-      synonyms = [],
-      episodeNumber = 1,
-      language = 'DUB',
-      serverName,
-      format = 'TV',
-    } = req.body;
-
-    const epNum = Number(episodeNumber) || 1;
-    const langUpper = String(language || 'DUB').toUpperCase();
-    const displayTitle = englishTitle || animeTitle || romajiTitle || 'Anime';
-
-    const renimeServers = [
-      { name: 'Renime Global Master', type: 'DUB', linkId: 'renime-dub-1' },
-      { name: 'Renime Japanese Master (Sub)', type: 'SUB', linkId: 'renime-sub-1' },
-      { name: 'Renime High Speed CDN', type: 'SUB', linkId: 'renime-cdn-1' },
-    ];
-
-    let resolved = await resolveAnikotoInternal({
-      animeTitle,
-      romajiTitle,
-      englishTitle,
-      nativeTitle,
-      synonyms,
-      episodeNumber: epNum,
-      language: langUpper === 'DUB' ? 'DUB' : 'SUB',
-      serverName,
-      format,
-    });
-
-    if (!resolved.success) {
-      resolved = await resolveAnikotoInternal({
-        animeTitle,
-        romajiTitle,
-        englishTitle,
-        nativeTitle,
-        synonyms,
-        episodeNumber: epNum,
-        language: 'SUB',
-        serverName,
-        format,
-      });
-    }
-
-    if (resolved.success) {
-      res.json({
-        ...resolved,
-        requestedLanguage: langUpper,
-        availableLanguages: ['SUB', 'DUB'],
-        availableServers: [...renimeServers, ...(resolved.availableServers || [])],
-        provider: 'renime',
-      });
-      return;
-    }
-
-    res.status(404).json({
-      success: false,
-      error: `Renime stream not available for "${displayTitle}" Episode ${epNum} in ${langUpper}.`,
-    });
-  } catch (error: any) {
-    console.error('Renime resolve error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to resolve Renime stream',
-    });
-  }
-});
-
-// 5. UNIVERSAL MASTER STREAM RESOLVER
+// 6. MASTER MULTI-LANGUAGE & MULTI-SERVER STREAM RESOLVER
 router.post('/stream/resolve', async (req, res) => {
   try {
     const {
       category,
+      providerId,
       animeTitle,
       romajiTitle,
       englishTitle,
@@ -492,6 +505,40 @@ router.post('/stream/resolve', async (req, res) => {
     const langUpper = String(language || 'SUB').toUpperCase();
     const displayTitle = englishTitle || animeTitle || romajiTitle || 'Anime';
 
+    // 1. If Indian Language (HIN, TAM, TEL, MAL, BEN) -> Route to Indian regional scraper
+    if (['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'HINDI', 'TAMIL', 'TELUGU'].includes(langUpper)) {
+      const indianRes = await resolveIndianStream({
+        animeTitle,
+        romajiTitle,
+        englishTitle,
+        episodeNumber: epNum,
+        language: langUpper,
+        serverName,
+      });
+
+      if (indianRes.success && indianRes.streamUrl) {
+        res.json(indianRes);
+        return;
+      }
+    }
+
+    // 2. If provider is Tatakai
+    if (category === 'tatakai' || providerId === 'tatakai-multi' || providerId === 'tatakai-pahe') {
+      const tatakaiRes = await resolveTatakaiStream({
+        animeTitle,
+        romajiTitle,
+        englishTitle,
+        episodeNumber: epNum,
+        language: langUpper,
+        serverName,
+      });
+      if (tatakaiRes.success && tatakaiRes.streamUrl) {
+        res.json(tatakaiRes);
+        return;
+      }
+    }
+
+    // 3. Main Anikoto multi-source pipeline (SUB / DUB)
     const reqLangForPipeline = langUpper === 'DUB' ? 'DUB' : 'SUB';
     const resolved = await resolveAnikotoInternal({
       animeTitle,
@@ -517,15 +564,30 @@ router.post('/stream/resolve', async (req, res) => {
         embedUrl: resolved.embedUrl || resolved.streamUrl,
         isDirectVideo: isDirect,
         requestedLanguage: langUpper,
-        availableLanguages: ['SUB', 'DUB'],
-        provider: category || 'tatakai',
+        availableLanguages: ['SUB', 'DUB', 'HIN', 'TAM', 'TEL'],
+        provider: category || 'anikoto',
       });
+      return;
+    }
+
+    // 4. Fallback to Indian / Tatakai scrapers as last resort
+    const fallbackIndian = await resolveIndianStream({
+      animeTitle,
+      romajiTitle,
+      englishTitle,
+      episodeNumber: epNum,
+      language: 'HIN',
+      serverName,
+    });
+
+    if (fallbackIndian.success && fallbackIndian.streamUrl) {
+      res.json(fallbackIndian);
       return;
     }
 
     res.status(404).json({
       success: false,
-      error: `Streaming is not yet available for "${displayTitle}" Episode ${epNum}. This anime may still be unreleased or unavailable.`,
+      error: `Streaming is not yet available for "${displayTitle}" Episode ${epNum}.`,
     });
   } catch (error: any) {
     console.error('Universal resolve error:', error);
@@ -535,6 +597,7 @@ router.post('/stream/resolve', async (req, res) => {
     });
   }
 });
+
 
 // Direct Video Extractor Endpoint (GET & POST) for Android ExoPlayer and Native Players
 const handleDirectStreamResolution = async (req: any, res: any) => {

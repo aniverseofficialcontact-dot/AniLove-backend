@@ -218,10 +218,9 @@ export async function resolveIndianStream(params: {
     };
   }
 
-  // Prefer series over movie for episode requests > 1
-  const targetAnime =
-    (epNum > 1 ? searchResults.find(a => a.url.includes('/series/')) : null) ||
-    searchResults[0];
+  // Prefer series over movie for episode requests
+  // This ensures that even for Episode 1, we don't accidentally pick a movie listing if one exists.
+  const targetAnime = searchResults.find(a => a.url.includes('/series/')) || searchResults[0];
 
   try {
     const pageRes = await fetch(targetAnime.url, {

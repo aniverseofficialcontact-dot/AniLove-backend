@@ -116,22 +116,28 @@ function scoreIndianCandidate(
   if (isItemMovie && !isMovieRequest && requestedEp > 0) {
     return -999; // KILL: Don't pick a movie for episode requests
   }
-  if (!isItemMovie && isMovieRequest) {
-    score -= 100;
-  }
 
-  // 2. Season matching
+  // 2. Advanced Season matching
   const getSeason = (s: string) => {
-    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i);
-    return m ? parseInt(m[1]) : 1;
+    const m = s.match(/season\s*(\d+)/i) || s.match(/s(\d+)/i) || s.match(/(\d+)(?:st|nd|rd|th)\s*season/i);
+    return m ? parseInt(m[1]) : null;
   };
-  const targetSeason = getSeason(targetNorm);
+
+  const targetSeason = getSeason(targetNorm) || 1;
   const itemSeason = getSeason(itemTitleNorm);
 
-  if (targetSeason !== itemSeason) {
-    return -999; // KILL: Wrong season
+  // KILL if seasons explicitly don't match
+  if (itemSeason !== null && targetSeason !== itemSeason) {
+    return -999;
   }
-  score += 100;
+
+  // Bonus for explicit "Season 1" match if looking for S1
+  if (targetSeason === 1 && itemSeason === 1) {
+    score += 150;
+  } else if (targetSeason === 1 && itemSeason === null) {
+    // Potential main title (often the latest season), give lower priority
+    score += 30;
+  }
 
   // 3. Token Matching
   const targetTokens = targetNorm.split(/\s+/).filter(t => t.length > 1 && !STOP_WORDS.has(t));

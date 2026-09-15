@@ -4,7 +4,7 @@
  * Scrapes WatchAnimeWorld / AnimeSalt / Zephyrix for Hindi, Tamil, Telugu,
  * Malayalam, Bengali, English Dub and Japanese Sub streams.
  *
- * Extracts direct master .m3u8 streams containing all multi-audio tracks natively.
+ * Provides embed player URLs for seamless WebView playback and direct master .m3u8 for downloads.
  */
 
 import { extractDirectStreamFromEmbed } from './directVideoResolver';
@@ -288,8 +288,10 @@ export async function resolveIndianStream(params: {
     const zepMatch = epHtml.match(/<iframe[^>]+src=["'](https?:\/\/play\.zephyrix\.org\/video\/([a-zA-Z0-9]+))["']/i);
     let directM3u8: string | null = null;
     let zephyrixHash: string | null = null;
+    let zephyrixEmbedUrl: string | null = null;
 
     if (zepMatch) {
+      zephyrixEmbedUrl = zepMatch[1];
       zephyrixHash = zepMatch[2];
       directM3u8 = await resolveZephyrixVideo(zephyrixHash, epPageUrl);
     }
@@ -320,25 +322,18 @@ export async function resolveIndianStream(params: {
     // Build available servers list
     const serverOptions: Array<{ name: string; type: string; linkId: string }> = [];
 
+    if (zephyrixEmbedUrl) {
+      serverOptions.push({
+        name: `Zephyrix Player (${reqLang} Multi-Audio)`,
+        type: reqLang,
+        linkId: zephyrixEmbedUrl,
+      });
+    }
+
     if (directM3u8) {
       serverOptions.push({
-        name: `Zephyrix Multi-Audio Master (1080p HLS)`,
+        name: `AnimeWorld Direct HLS (1080p)`,
         type: reqLang,
-        linkId: directM3u8,
-      });
-      serverOptions.push({
-        name: `AnimeWorld Hindi HD (Direct)`,
-        type: 'HIN',
-        linkId: directM3u8,
-      });
-      serverOptions.push({
-        name: `AnimeWorld Tamil CDN (Direct)`,
-        type: 'TAM',
-        linkId: directM3u8,
-      });
-      serverOptions.push({
-        name: `AnimeWorld Telugu CDN (Direct)`,
-        type: 'TEL',
         linkId: directM3u8,
       });
     }
@@ -373,7 +368,7 @@ export async function resolveIndianStream(params: {
       }
     });
 
-    if (serverOptions.length === 0 && !directM3u8) {
+    if (serverOptions.length === 0 && !zephyrixEmbedUrl && !directM3u8) {
       return {
         success: false,
         status: 404,
@@ -388,16 +383,16 @@ export async function resolveIndianStream(params: {
       if (matched) chosenServer = matched;
     }
 
-    const finalStreamUrl = directM3u8 || chosenServer.linkId;
-    const isDirect = Boolean(finalStreamUrl && (finalStreamUrl.includes('.m3u8') || finalStreamUrl.includes('.mp4')));
+    // For webview playback, zephyrixEmbedUrl is rock solid with full FirePlayer multi-audio!
+    const activeStreamUrl = zephyrixEmbedUrl || directM3u8 || chosenServer.linkId;
 
     return {
       success: true,
-      streamUrl: finalStreamUrl,
-      directStreamUrl: directM3u8 || (isDirect ? finalStreamUrl : null),
-      embedUrl: zepMatch ? zepMatch[1] : chosenServer.linkId,
+      streamUrl: activeStreamUrl,
+      directStreamUrl: directM3u8 || null,
+      embedUrl: zephyrixEmbedUrl || chosenServer.linkId,
       subtitleUrl: null,
-      isDirectVideo: isDirect,
+      isDirectVideo: false,
       availableServers: serverOptions,
       availableLanguages: ['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'DUB', 'SUB'],
       selectedServer: chosenServer.name,

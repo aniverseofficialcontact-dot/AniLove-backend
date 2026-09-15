@@ -65,6 +65,58 @@ function cleanTitle(str: string): string {
 }
 
 /**
+ * Extracts season number from a title string (e.g. "Season 2" -> 2)
+ */
+function getSeasonNumber(title: string): number {
+  const t = title.toLowerCase();
+  const match = t.match(/season\s*(\d+)/i) || t.match(/s(\d+)/i) || t.match(/(\d+)(?:st|nd|rd|th)\s*season/i);
+  if (match) return parseInt(match[1]);
+  // If it's a movie or has no season number, we treat it as 1 for base comparison
+  return 1;
+}
+
+/**
+ * Calculates a match score between the requested anime and a search result
+ */
+function calculateMatchScore(result: IndianAnimeSearchResult, targetTitle: string, isEpisodeRequest: boolean): number {
+  let score = 0;
+  const resTitle = result.title.toLowerCase();
+  const target = targetTitle.toLowerCase();
+
+  // 1. Season Matching (CRITICAL)
+  const targetSeason = getSeasonNumber(target);
+  const resultSeason = getSeasonNumber(resTitle);
+  if (targetSeason === resultSeason) {
+    score += 100;
+  } else {
+    // Large penalty for wrong season
+    score -= 50;
+  }
+
+  // 2. Movie vs Series Logic
+  const isMovieResult = resTitle.includes('movie') || result.url.includes('/movies/') || resTitle.includes('film');
+  if (isEpisodeRequest && isMovieResult) {
+    score -= 150; // Heavy penalty: we want a series, not a movie
+  }
+  if (!isEpisodeRequest && isMovieResult) {
+    score += 100; // Bonus: we are looking for a movie and found one
+  }
+
+  // 3. Word Matching
+  const targetWords = target.replace(/season\s*\d+/gi, '').split(/\s+/).filter(w => w.length > 2);
+  let matchCount = 0;
+  for (const word of targetWords) {
+    if (resTitle.includes(word)) matchCount++;
+  }
+  score += (matchCount / (targetWords.length || 1)) * 50;
+
+  // 4. Series URL Bonus
+  if (result.url.includes('/series/')) score += 30;
+
+  return score;
+}
+
+/**
  * Extracts language tags from title or tags string
  */
 export function detectLanguages(text: string): string[] {
@@ -134,12 +186,14 @@ export async function searchIndianAnime(query: string): Promise<IndianAnimeSearc
 
         if (itemUrl && !results.some(r => r.url === itemUrl)) {
           const detected = detectLanguages(itemTitle + ' ' + itemUrl + ' Multi Audio Hindi Tamil Telugu');
+          const type = itemUrl.includes('/series/') ? 'series' : itemUrl.includes('/movie') ? 'movie' : 'anime';
           results.push({
             id: itemUrl.split('/').filter(Boolean).pop() || itemUrl,
             title: itemTitle,
             url: itemUrl.startsWith('http') ? itemUrl : `${base}${itemUrl}`,
             poster,
             languages: detected,
+            type,
           });
         }
       }
@@ -218,9 +272,16 @@ export async function resolveIndianStream(params: {
     };
   }
 
-  // Prefer series over movie for episode requests
-  // This ensures that even for Episode 1, we don't accidentally pick a movie listing if one exists.
-  const targetAnime = searchResults.find(a => a.url.includes('/series/')) || searchResults[0];
+  // Smart Selection: Score all results and pick the best one
+  const primarySearchTitle = params.englishTitle || params.animeTitle || 'Anime';
+
+  // Sort results by their match score (highest first)
+  const scoredResults = searchResults.map(res => ({
+    result: res,
+    score: calculateMatchScore(res, primarySearchTitle, epNum > 0)
+  })).sort((a, b) => b.score - a.score);
+
+  const targetAnime = scoredResults[0].result;
 
   try {
     const pageRes = await fetch(targetAnime.url, {

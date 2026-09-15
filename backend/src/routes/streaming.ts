@@ -7,7 +7,7 @@ import {
   parseAnikotoServers,
   resolveAnikotoInternal,
 } from '../services/anikotoScraper';
-import { resolveDirectVideoLink } from '../services/directVideoResolver';
+import { resolveDirectVideoLink, extractDirectStreamFromEmbed } from '../services/directVideoResolver';
 
 const router = Router();
 
@@ -568,6 +568,31 @@ router.get('/stream/direct', handleDirectStreamResolution);
 router.post('/stream/direct', handleDirectStreamResolution);
 router.get('/video/direct', handleDirectStreamResolution);
 router.post('/video/direct', handleDirectStreamResolution);
+
+// Android Download Extractor — called by EpisodeDownloadService before VideoSniffer
+// Returns { success, streamUrl, subtitleUrl } with full AES decryption support
+router.post('/stream/extract-direct', async (req: any, res: any) => {
+  try {
+    const embedUrl = String(req.body?.embedUrl || req.body?.url || '').trim();
+    const referer = String(req.body?.referer || 'https://anikototv.to/').trim();
+    if (!embedUrl) {
+      res.status(400).json({ success: false, error: 'embedUrl is required' });
+      return;
+    }
+    console.log('[extract-direct] Extracting from:', embedUrl.substring(0, 100));
+    const result = await extractDirectStreamFromEmbed(embedUrl, referer);
+    if (result?.streamUrl) {
+      console.log('[extract-direct] SUCCESS:', result.streamUrl.substring(0, 80));
+      res.json({ success: true, streamUrl: result.streamUrl, subtitleUrl: result.subtitleUrl || '' });
+    } else {
+      console.log('[extract-direct] Could not extract from:', embedUrl.substring(0, 80));
+      res.status(404).json({ success: false, error: 'Could not extract stream from embed URL' });
+    }
+  } catch (err: any) {
+    console.error('[extract-direct] Error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Extraction failed' });
+  }
+});
 
 // 6. ANIVEXA API RESOLVER
 router.post('/anivexa/resolve', async (req, res) => {

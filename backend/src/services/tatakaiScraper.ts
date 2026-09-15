@@ -36,17 +36,28 @@ export async function resolveTatakaiStream(params: {
   const isDub = lang === 'DUB';
   const title = params.englishTitle || params.animeTitle || 'Anime';
 
-  // Tatakai's specialized server list (Using search-based resolution where possible)
+  // Create a clean URL slug (e.g. "demon-slayer-kimetsu-no-yaiba")
+  const cleanTitle = title.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '') // Remove colons and symbols
+    .replace(/\s+/g, '-');       // Replace spaces with dashes
+
+  const getSeasonSuffix = () => {
+    const m = title.match(/season\s*(\d+)/i) || title.match(/s(\d+)/i);
+    return m ? `-season-${m[1]}` : '';
+  };
+  const seasonSuffix = getSeasonSuffix();
+
+  // Tatakai's specialized server list (Using cleaned URLs)
   const servers = [
     {
       name: 'Tatakai Alpha (Ultra HD)',
       type: isDub ? 'DUB' : 'SUB',
-      linkId: `https://vidlink.pro/tv/${encodeURIComponent(title.toLowerCase().replace(/\s+/g, '-'))}/${epNum}`
+      linkId: `https://vidlink.pro/tv/${cleanTitle}${seasonSuffix}/${epNum}`
     },
     {
       name: 'Tatakai Beta (Multi-Audio HIN/ENG)',
       type: 'HIN',
-      linkId: `https://autoembed.co/anime/tv/${encodeURIComponent(title.toLowerCase().replace(/\s+/g, '-'))}/${epNum}`
+      linkId: `https://autoembed.co/anime/tv/${cleanTitle}${seasonSuffix}/${epNum}`
     }
   ];
 

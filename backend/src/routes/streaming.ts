@@ -332,6 +332,7 @@ router.get('/animeworld/search', async (req, res) => {
 router.post('/animeworld/resolve', async (req, res) => {
   try {
     const {
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,
@@ -341,6 +342,7 @@ router.post('/animeworld/resolve', async (req, res) => {
     } = req.body;
 
     const result = await resolveIndianStream({
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,
@@ -363,6 +365,7 @@ router.post('/animeworld/resolve', async (req, res) => {
 router.post('/renime/resolve', async (req, res) => {
   try {
     const {
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,
@@ -378,6 +381,7 @@ router.post('/renime/resolve', async (req, res) => {
 
     // TRUE RENIME RESOLUTION: Dedicated Hindi/Regional engine
     const renimeRes = await resolveRenimeStream({
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,

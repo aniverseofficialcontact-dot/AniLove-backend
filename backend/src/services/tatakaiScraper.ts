@@ -31,9 +31,10 @@ const JUSTANIME_HEADERS = {
 /**
  * Fetch from Tatakai's JustAnime Core API (direct 1080p HLS / MP4 CDN)
  */
-async function fetchJustAnimeSource(anilistId: number | string, episode: number, isDub: boolean): Promise<{
+export async function fetchJustAnimeSource(anilistId: number | string, episode: number, isDub: boolean): Promise<{
   streamUrl: string;
   isHls: boolean;
+  subtitleUrl?: string;
   intro?: { start: number; end: number };
   outro?: { start: number; end: number };
 } | null> {
@@ -47,14 +48,19 @@ async function fetchJustAnimeSource(anilistId: number | string, episode: number,
       });
       if (!res.ok) continue;
       const data = await res.json() as any;
-      const streamObj = isDub ? data.dub : (data.sub || data.dub);
+      const streamObj = isDub ? (data.dub || data.sub) : (data.sub || data.dub);
       if (streamObj && Array.isArray(streamObj.sources) && streamObj.sources.length > 0) {
         const hls = streamObj.sources.find((s: any) => s.isM3U8 && s.url);
         const best = hls || streamObj.sources[0];
         if (best?.url) {
+          const subTracks = Array.isArray(streamObj.subtitles) ? streamObj.subtitles : [];
+          const engSub = subTracks.find((s: any) => s.default === true || s.label?.toLowerCase().includes('english') || s.label?.toLowerCase().includes('eng'))?.file
+            || subTracks.find((s: any) => s.file?.toLowerCase().includes('eng'))?.file
+            || subTracks[0]?.file;
           return {
             streamUrl: best.url,
             isHls: Boolean(best.isM3U8 || best.url.includes('.m3u8')),
+            subtitleUrl: engSub,
             intro: streamObj.intro,
             outro: streamObj.outro,
           };
@@ -122,6 +128,7 @@ export async function resolveTatakaiStream(params: {
         streamUrl: justAnime.streamUrl,
         directStreamUrl: justAnime.streamUrl,
         embedUrl: justAnime.streamUrl,
+        subtitleUrl: justAnime.subtitleUrl || null,
         isDirectVideo: justAnime.isHls,
         availableServers: [
           { name: `Tatakai Direct HLS (${isDub ? 'DUB' : 'SUB'})`, type: isDub ? 'DUB' : 'SUB', linkId: justAnime.streamUrl },

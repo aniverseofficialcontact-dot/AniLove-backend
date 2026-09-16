@@ -1,6 +1,5 @@
-// Anikoto Scraper & Stream Resolver Engine
-// Preserves all headers, parsing logic, scoring algorithms, and fallback pipelines
 import { resolveDirectVideoLink } from './directVideoResolver';
+import { fetchJustAnimeSource } from './tatakaiScraper';
 
 export const ANIKOTO_BASE = 'https://anikototv.to';
 export const ANIKOTO_HEADERS: Record<string, string> = {
@@ -699,13 +698,27 @@ export async function resolveAnikotoInternal(input: {
 
     const rawEmbedUrl = streamJson.result.url;
     // Resolve direct video link (.m3u8 or .mp4) for Android ExoPlayer / native video playback
-    const directStreamUrl = await resolveDirectVideoLink(rawEmbedUrl);
+    let directStreamUrl = await resolveDirectVideoLink(rawEmbedUrl);
+    let subtitleUrl: string | null = null;
+
+    if ((!directStreamUrl || directStreamUrl === rawEmbedUrl) && anilistId) {
+      try {
+        const justAnime = await fetchJustAnimeSource(anilistId, epNum, targetGroupKey === 'DUB');
+        if (justAnime?.streamUrl) {
+          directStreamUrl = justAnime.streamUrl;
+          subtitleUrl = justAnime.subtitleUrl || null;
+        }
+      } catch {}
+    }
+
     const isDirectVideo = Boolean(directStreamUrl && /\.(m3u8|mp4)(\?|$)/i.test(directStreamUrl));
 
     return {
       success: true,
-      streamUrl: directStreamUrl,
+      streamUrl: directStreamUrl || rawEmbedUrl,
+      directStreamUrl: directStreamUrl || null,
       embedUrl: rawEmbedUrl,
+      subtitleUrl,
       isDirectVideo,
       skipData: streamJson.result.skip_data || { intro: [0, 0], outro: [0, 0] },
       animeMatch: {

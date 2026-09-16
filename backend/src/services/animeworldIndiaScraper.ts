@@ -326,7 +326,7 @@ async function resolveZephyrixVideo(hash: string, refererUrl: string): Promise<s
 
     if (!res.ok) return null;
     const data = await res.json();
-    return data.securedLink || data.videoSource || null;
+    return data.videoSource || data.securedLink || null;
   } catch {
     return null;
   }

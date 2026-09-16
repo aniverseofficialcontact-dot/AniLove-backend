@@ -602,6 +602,8 @@ router.post('/stream/resolve', async (req, res) => {
         ...resolved,
         streamUrl: directUrl || resolved.streamUrl,
         embedUrl: resolved.embedUrl || resolved.streamUrl,
+        directStreamUrl: isDirect ? directUrl : undefined,
+        subtitleUrl: (resolved as any).subtitleUrl || ((resolved as any).subtitles && (resolved as any).subtitles.length > 0 ? (resolved as any).subtitles[0].url : ''),
         isDirectVideo: isDirect,
         requestedLanguage: langUpper,
         availableLanguages: ['SUB', 'DUB', 'HIN', 'TAM', 'TEL'],

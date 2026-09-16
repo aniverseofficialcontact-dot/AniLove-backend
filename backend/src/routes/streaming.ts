@@ -580,6 +580,7 @@ router.post('/stream/resolve', async (req, res) => {
     // 3. Main Anikoto multi-source pipeline (SUB / DUB)
     const reqLangForPipeline = langUpper === 'DUB' ? 'DUB' : 'SUB';
     const resolved = await resolveAnikotoInternal({
+      anilistId,
       animeTitle,
       romajiTitle,
       englishTitle,

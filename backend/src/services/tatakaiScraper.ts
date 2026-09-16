@@ -1,5 +1,6 @@
 import { extractDirectStreamFromEmbed } from './directVideoResolver';
 import { resolveIndianStream } from './animeworldIndiaScraper';
+import { resolveAnikotoInternal } from './anikotoScraper';
 
 export interface TatakaiStreamResult {
   success: boolean;
@@ -190,6 +191,26 @@ export async function resolveTatakaiStream(params: {
       provider: 'tatakai',
     };
   } catch (err: any) {
+    try {
+      const anikotoFallback = await resolveAnikotoInternal({
+        anilistId: anilistId || undefined,
+        animeTitle: title,
+        englishTitle: params.englishTitle,
+        romajiTitle: params.romajiTitle,
+        episodeNumber: epNum,
+        language: isDub ? 'DUB' : 'SUB',
+        serverName: params.serverName,
+        format: params.format,
+      });
+      if (anikotoFallback.success && anikotoFallback.streamUrl) {
+        return {
+          ...anikotoFallback,
+          provider: 'tatakai',
+          availableLanguages: ['SUB', 'DUB', 'HIN', 'TAM', 'TEL'],
+        };
+      }
+    } catch {}
+
     return {
       success: false,
       error: err.message || 'Tatakai engine failed to resolve stream',

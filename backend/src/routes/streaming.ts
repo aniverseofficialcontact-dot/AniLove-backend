@@ -561,12 +561,15 @@ router.post('/stream/resolve', async (req, res) => {
     // 2. If provider is Tatakai
     if (category === 'tatakai' || providerId === 'tatakai-multi' || providerId === 'tatakai-pahe') {
       const tatakaiRes = await resolveTatakaiStream({
+        anilistId: anilistId || 1,
         animeTitle,
         romajiTitle,
         englishTitle,
+        synonyms,
         episodeNumber: epNum,
         language: langUpper,
         serverName,
+        format,
       });
       if (tatakaiRes.success && tatakaiRes.streamUrl) {
         res.json(tatakaiRes);

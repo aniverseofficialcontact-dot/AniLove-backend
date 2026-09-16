@@ -263,6 +263,7 @@ router.post('/tatakai/resolve', async (req, res) => {
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
+    const langUpper = String(language || 'SUB').toUpperCase();
     // TRUE TATAKAI RESOLUTION: Multi-Audio & Sub/Dub
     let tatakaiRes = await resolveTatakaiStream({
       anilistId,
@@ -514,6 +515,7 @@ router.post('/miruro/resolve', async (req, res) => {
 router.post('/stream/resolve', async (req, res) => {
   try {
     const {
+      anilistId,
       category,
       providerId,
       animeTitle,
@@ -531,13 +533,21 @@ router.post('/stream/resolve', async (req, res) => {
     const langUpper = String(language || 'SUB').toUpperCase();
     const displayTitle = englishTitle || animeTitle || romajiTitle || 'Anime';
 
-    // 1. If Indian Language (HIN, TAM, TEL, MAL, BEN) -> Route to Indian regional scraper
-    if (['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'HINDI', 'TAMIL', 'TELUGU'].includes(langUpper)) {
+    // 1. If provider is AnimeWorld India or Indian Language (HIN, TAM, TEL, MAL, BEN) -> Route to Indian regional scraper
+    if (
+      providerId === 'animeworld-india' ||
+      category === 'official' ||
+      (serverName && /animeworld|indian|zephyrix/i.test(serverName)) ||
+      ['HIN', 'TAM', 'TEL', 'MAL', 'BEN', 'HINDI', 'TAMIL', 'TELUGU'].includes(langUpper)
+    ) {
       const indianRes = await resolveIndianStream({
+        anilistId,
         animeTitle,
         romajiTitle,
         englishTitle,
+        synonyms,
         episodeNumber: epNum,
+        format,
         language: langUpper,
         serverName,
       });

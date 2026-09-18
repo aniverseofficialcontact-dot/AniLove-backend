@@ -377,6 +377,8 @@ export async function generateUniversalFallbackStream(input: {
   episodeNumber?: number;
   language?: string;
   serverName?: string;
+  subtitleUrl?: string;
+  subtitleLang?: string;
 }) {
   const {
     anilistId = 1,
@@ -386,6 +388,8 @@ export async function generateUniversalFallbackStream(input: {
     episodeNumber = 1,
     language = 'DUB',
     serverName = 'VidLink Ultra HD',
+    subtitleUrl = '',
+    subtitleLang = 'English',
   } = input;
 
   const epNum = Number(episodeNumber) || 1;
@@ -424,6 +428,8 @@ export async function generateUniversalFallbackStream(input: {
     streamUrl: directStreamUrl,
     embedUrl: rawEmbedUrl,
     isDirectVideo,
+    subtitleUrl,
+    subtitleLang,
     skipData: { intro: [0, 0], outro: [0, 0] },
     animeMatch: {
       id: String(anilistId),
@@ -463,6 +469,8 @@ export async function resolveAnikotoInternal(input: {
   language?: string;
   serverName?: string;
   format?: string;
+  subtitleUrl?: string;
+  subtitleLang?: string;
 }): Promise<any> {
   const {
     anilistId = 1,
@@ -475,6 +483,8 @@ export async function resolveAnikotoInternal(input: {
     language = 'SUB',
     serverName,
     format = 'TV',
+    subtitleUrl,
+    subtitleLang,
   } = input;
 
   const epNum = Number(episodeNumber) || 1;
@@ -499,6 +509,8 @@ export async function resolveAnikotoInternal(input: {
       episodeNumber: epNum,
       language: lang,
       serverName,
+      subtitleUrl,
+      subtitleLang,
     });
   }
 
@@ -552,6 +564,8 @@ export async function resolveAnikotoInternal(input: {
       episodeNumber: epNum,
       language: lang,
       serverName,
+      subtitleUrl,
+      subtitleLang,
     });
   }
 
@@ -757,6 +771,8 @@ export async function resolveAnikotoInternal(input: {
       episodeNumber: epNum,
       language: lang,
       serverName,
+      subtitleUrl,
+      subtitleLang,
     });
   }
 }

@@ -170,6 +170,8 @@ router.post('/anify/resolve', async (req, res) => {
       language = 'SUB',
       serverName,
       format = 'TV',
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -225,6 +227,8 @@ router.post('/anify/resolve', async (req, res) => {
       language: subType.toUpperCase(),
       serverName,
       format,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (fallbackResult.success) {
@@ -260,6 +264,8 @@ router.post('/tatakai/resolve', async (req, res) => {
       episodeNumber = 1,
       language = 'SUB',
       serverName,
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -290,6 +296,8 @@ router.post('/tatakai/resolve', async (req, res) => {
       episodeNumber: epNum,
       language: langUpper === 'DUB' ? 'DUB' : 'SUB',
       serverName,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (fallbackRes.success) {
@@ -470,6 +478,8 @@ router.post('/miruro/resolve', async (req, res) => {
       language = 'SUB',
       serverName,
       format = 'TV',
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -486,6 +496,8 @@ router.post('/miruro/resolve', async (req, res) => {
       language: langUpper === 'DUB' ? 'DUB' : 'SUB',
       serverName,
       format,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (resolved.success) {
@@ -527,6 +539,8 @@ router.post('/stream/resolve', async (req, res) => {
       language = 'SUB',
       serverName,
       format = 'TV',
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -590,6 +604,8 @@ router.post('/stream/resolve', async (req, res) => {
       language: reqLangForPipeline,
       serverName,
       format,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (resolved.success) {
@@ -755,6 +771,8 @@ router.post('/anivexa/resolve', async (req, res) => {
       language = 'SUB',
       serverName,
       format = 'TV',
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -778,6 +796,8 @@ router.post('/anivexa/resolve', async (req, res) => {
       language: langUpper === 'DUB' ? 'DUB' : 'SUB',
       serverName,
       format,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (!resolved.success) {
@@ -791,6 +811,8 @@ router.post('/anivexa/resolve', async (req, res) => {
         language: 'SUB',
         serverName,
         format,
+        subtitleUrl,
+        subtitleLang,
       });
     }
 
@@ -872,6 +894,8 @@ router.post('/otakudesu/resolve', async (req, res) => {
       episodeNumber = 1,
       serverName,
       format = 'TV',
+      subtitleUrl,
+      subtitleLang,
     } = req.body;
 
     const epNum = Number(episodeNumber) || 1;
@@ -893,6 +917,8 @@ router.post('/otakudesu/resolve', async (req, res) => {
       language: 'SUB',
       serverName,
       format,
+      subtitleUrl,
+      subtitleLang,
     });
 
     if (resolved.success) {
